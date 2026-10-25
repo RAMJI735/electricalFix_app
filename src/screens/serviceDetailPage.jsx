@@ -32,6 +32,7 @@ export default function ServiceDetailPage({
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const [added, setAdded] = useState(false);
+  const [adding, setAdding] = useState(false);
 
   // Fetch full details via getServiceById
   const fetchServiceDetails = useCallback(async () => {
@@ -58,7 +59,7 @@ export default function ServiceDetailPage({
 
   useEffect(() => {
     fetchServiceDetails();
-  }, [fetchServiceDetails]);
+  }, []);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -68,25 +69,34 @@ export default function ServiceDetailPage({
 
   const inCart = Boolean((service && isInCart(service)) || added);
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     if (inCart) {
       onNavigateToCart && onNavigateToCart();
       return;
     }
     if (service && onAddToCart) {
-      onAddToCart({
-        id: service._id || service.id,
-        _id: service._id || service.id,
-        name: service.serviceName || service.name,
-        price: service.price,
-        brand: service.brand || 'VOLTLINE',
-        type: service.type || 'service',
-        image: service.image || '',
-        spec: service.estimated_time
-          ? `⏱ ${service.estimated_time} • Warranty: ${service.warranty || '90 Days'}`
-          : (service.description || 'Electrical Material / Service'),
-      });
-      setAdded(true);
+      setAdding(true);
+      try {
+        const res = await onAddToCart({
+          id: service._id || service.id,
+          _id: service._id || service.id,
+          name: service.serviceName || service.name,
+          price: service.price,
+          brand: service.brand || 'VOLTLINE',
+          type: service.type || 'service',
+          image: service.image || '',
+          spec: service.estimated_time
+            ? `⏱ ${service.estimated_time} • Warranty: ${service.warranty || '90 Days'}`
+            : (service.description || 'Electrical Material / Service'),
+        });
+        if (res !== false) {
+          setAdded(true);
+        }
+      } catch (err) {
+        console.warn('Failed to add to cart:', err);
+      } finally {
+        setAdding(false);
+      }
     }
   };
 
@@ -330,11 +340,17 @@ export default function ServiceDetailPage({
           </View>
 
           <TouchableOpacity
-            style={[styles.addCartBtn, inCart && styles.addCartBtnSuccess]}
+            style={[styles.addCartBtn, inCart && styles.addCartBtnSuccess, adding && styles.addCartBtnLoading]}
             activeOpacity={0.85}
+            disabled={adding}
             onPress={handleAdd}
           >
-            {inCart ? (
+            {adding ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <ActivityIndicator size="small" color="#ffffff" />
+                <Text style={styles.addCartBtnText}>ADDING TO CART...</Text>
+              </View>
+            ) : inCart ? (
               <>
                 <CartIcon size={16} color="#ffffff" focused />
                 <Text style={styles.addCartBtnText}>GO TO CART</Text>
@@ -733,6 +749,10 @@ const styles = StyleSheet.create({
   },
   addCartBtnSuccess: {
     backgroundColor: '#16a34a',
+  },
+  addCartBtnLoading: {
+    opacity: 0.85,
+    paddingHorizontal: 16,
   },
   addCartBtnText: {
     color: '#ffffff',

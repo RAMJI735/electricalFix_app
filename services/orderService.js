@@ -1,5 +1,4 @@
 import { api } from '../utils/api';
-import CartService from './cartService';
 
 export const OrderService = {
   /**
@@ -8,15 +7,7 @@ export const OrderService = {
    */
   async createOrder(orderData) {
     try {
-      const guestId = CartService.getGuestId();
-      const payload = {
-        ...orderData,
-        guestId,
-      };
-
-      const response = await api.post('/api/orders', payload, {
-        headers: { 'x-guest-id': guestId },
-      });
+      const response = await api.post('/api/orders', orderData);
       return response.data?.data || response.data;
     } catch (error) {
       console.error('Error creating order:', error.message);
@@ -25,15 +16,11 @@ export const OrderService = {
   },
 
   /**
-   * Fetch all orders for current user or guest
+   * Fetch all orders for current user
    */
   async getOrders() {
     try {
-      const guestId = CartService.getGuestId();
-      const response = await api.get('/api/orders', {
-        params: { guestId },
-        headers: { 'x-guest-id': guestId },
-      });
+      const response = await api.get('/api/orders');
       return response.data?.data || response.data || [];
     } catch (error) {
       console.error('Error fetching orders:', error.message);

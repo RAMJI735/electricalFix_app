@@ -1,17 +1,12 @@
 import { api } from '../utils/api';
-import CartService from './cartService';
 
 export const AddressService = {
   /**
-   * Fetch all saved addresses for current user or guest
+   * Fetch all saved addresses for current user
    */
   async getAddresses() {
     try {
-      const guestId = CartService.getGuestId();
-      const response = await api.get('/api/addresses', {
-        params: { guestId },
-        headers: { 'x-guest-id': guestId },
-      });
+      const response = await api.get('/api/addresses');
       return response.data?.data || response.data || [];
     } catch (error) {
       console.error('Error fetching addresses:', error.message);
@@ -37,15 +32,7 @@ export const AddressService = {
    */
   async createAddress(addressData) {
     try {
-      const guestId = CartService.getGuestId();
-      const payload = {
-        ...addressData,
-        guestId,
-      };
-
-      const response = await api.post('/api/addresses', payload, {
-        headers: { 'x-guest-id': guestId },
-      });
+      const response = await api.post('/api/addresses', addressData);
       return response.data?.data || response.data;
     } catch (error) {
       console.error('Error creating address:', error.message);
@@ -58,12 +45,7 @@ export const AddressService = {
    */
   async updateAddress(id, addressData) {
     try {
-      const guestId = CartService.getGuestId();
-      const response = await api.put(
-        `/api/addresses/${id}`,
-        { ...addressData, guestId },
-        { headers: { 'x-guest-id': guestId } }
-      );
+      const response = await api.put(`/api/addresses/${id}`, addressData);
       return response.data?.data || response.data;
     } catch (error) {
       console.error(`Error updating address ${id}:`, error.message);
@@ -76,11 +58,7 @@ export const AddressService = {
    */
   async deleteAddress(id) {
     try {
-      const guestId = CartService.getGuestId();
-      const response = await api.delete(`/api/addresses/${id}`, {
-        params: { guestId },
-        headers: { 'x-guest-id': guestId },
-      });
+      const response = await api.delete(`/api/addresses/${id}`);
       return response.data?.data || response.data;
     } catch (error) {
       console.error(`Error deleting address ${id}:`, error.message);
@@ -93,12 +71,7 @@ export const AddressService = {
    */
   async setDefaultAddress(id) {
     try {
-      const guestId = CartService.getGuestId();
-      const response = await api.patch(
-        `/api/addresses/${id}/default`,
-        { guestId },
-        { headers: { 'x-guest-id': guestId } }
-      );
+      const response = await api.patch(`/api/addresses/${id}/default`);
       return response.data?.data || response.data;
     } catch (error) {
       console.error(`Error setting default address ${id}:`, error.message);

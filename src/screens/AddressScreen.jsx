@@ -11,6 +11,8 @@ import {
   RefreshControl,
   Alert,
   Platform,
+  KeyboardAvoidingView,
+  Keyboard,
 } from 'react-native';
 import AddressService from '../../services/addressService';
 import { useAuth } from '../context/AuthContext';
@@ -443,9 +445,13 @@ export default function AddressScreen({ onBack, onSelectAddress }) {
         visible={modalVisible}
         animationType="slide"
         transparent={true}
+        statusBarTranslucent={true}
         onRequestClose={() => setModalVisible(false)}
       >
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+        >
           <View style={styles.modalContent}>
             {/* Modal Header */}
             <View style={styles.modalHeader}>
@@ -462,8 +468,10 @@ export default function AddressScreen({ onBack, onSelectAddress }) {
 
             <ScrollView
               style={styles.modalBody}
-              contentContainerStyle={{ paddingBottom: 24 }}
+              contentContainerStyle={{ paddingBottom: 40 }}
               showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
             >
               {!!modalError && (
                 <View style={styles.errorBox}>
@@ -746,7 +754,7 @@ export default function AddressScreen({ onBack, onSelectAddress }) {
               </TouchableOpacity>
             </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -993,9 +1001,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    maxHeight: '90%',
+    maxHeight: '86%',
+    flexShrink: 1,
     paddingHorizontal: 20,
     paddingTop: 16,
+    paddingBottom: Platform.OS === 'ios' ? 24 : 12,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -1021,6 +1031,7 @@ const styles = StyleSheet.create({
   },
   modalBody: {
     paddingTop: 12,
+    flexShrink: 1,
   },
   errorBox: {
     backgroundColor: '#fef2f2',

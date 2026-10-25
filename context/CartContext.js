@@ -40,23 +40,33 @@ export function CartProvider({ children }) {
 
   // Fetch cart on mount and when authentication status changes
   useEffect(() => {
-    fetchCart();
+    if (isAuthenticated) {
+      fetchCart();
+    } else {
+      setCart({
+        items: [],
+        totalQuantity: 0,
+        totalPrice: 0,
+        discount: 0,
+        couponCode: '',
+        shippingFee: 0,
+        tax: 0,
+        grandTotal: 0,
+      });
+      setLoading(false);
+    }
   }, [fetchCart, isAuthenticated]);
 
-  // When user logs in, merge guest cart
-  useEffect(() => {
-    const uid = user?._id || user?.id;
-    if (isAuthenticated && uid) {
-      CartService.mergeCart(uid)
-        .then(() => fetchCart())
-        .catch(() => {});
-    }
-  }, [isAuthenticated, user, fetchCart]);
-
   /**
-   * Add item to cart with backend persistence
+   * Add item to cart with backend persistence (Requires user login)
    */
   const addToCart = async (product, quantity = 1, notes = '') => {
+    if (!isAuthenticated) {
+      const authErr = new Error('Please log in to add items to your cart');
+      authErr.code = 'AUTH_REQUIRED';
+      setError(authErr.message);
+      throw authErr;
+    }
     setUpdating(true);
     setError(null);
     try {

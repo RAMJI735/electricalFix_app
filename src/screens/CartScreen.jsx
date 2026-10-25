@@ -11,6 +11,8 @@ import {
   Alert,
   Platform,
   RefreshControl,
+  KeyboardAvoidingView,
+  Keyboard,
 } from 'react-native';
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
@@ -29,6 +31,7 @@ import {
 export default function CartScreen({
   onExploreShop,
   onNavigateToOrders,
+  onNavigateToAuth,
 }) {
   const {
     cart,
@@ -44,9 +47,10 @@ export default function CartScreen({
     fetchCart,
   } = useCart();
 
-  const { user } = useAuth();
+  const { user, isAuthenticated } = useAuth();
 
   const [refreshing, setRefreshing] = useState(false);
+  const [itemActionLoadingId, setItemActionLoadingId] = useState(null);
 
   // Coupon state
   const [couponInput, setCouponInput] = useState('');
@@ -146,6 +150,30 @@ export default function CartScreen({
       // Ignore
     } finally {
       setCouponLoading(false);
+    }
+  };
+
+  // Update item quantity with loading indicator
+  const handleUpdateQty = async (targetId, newQty) => {
+    setItemActionLoadingId(targetId);
+    try {
+      await updateQuantity(targetId, newQty);
+    } catch (err) {
+      console.warn('Failed to update quantity:', err);
+    } finally {
+      setItemActionLoadingId(null);
+    }
+  };
+
+  // Remove item with loading indicator
+  const handleRemoveItem = async (targetId) => {
+    setItemActionLoadingId(targetId);
+    try {
+      await removeFromCart(targetId);
+    } catch (err) {
+      console.warn('Failed to remove item:', err);
+    } finally {
+      setItemActionLoadingId(null);
     }
   };
 
@@ -325,22 +353,38 @@ export default function CartScreen({
         }
       >
         <View style={styles.emptyIconCircle}>
-          <Text style={styles.emptyIcon}>🛒</Text>
+          <Text style={styles.emptyIcon}>{isAuthenticated ? '🛒' : '🔒'}</Text>
         </View>
-        <Text style={styles.emptyTitle}>Your Electrical Cart is Empty</Text>
-        <Text style={styles.emptySubtitle}>
-          Add premium copper wires, MCBs, modular switches, and certified installation services.
+        <Text style={styles.emptyTitle}>
+          {isAuthenticated ? 'Your Electrical Cart is Empty' : 'Sign In to Access Your Cart'}
         </Text>
+        <Text style={styles.emptySubtitle}>
+          {isAuthenticated
+            ? 'Add premium copper wires, MCBs, modular switches, and certified installation services.'
+            : 'You are currently browsing the catalog as a visitor. Sign in or register to add items to your cart, save delivery sites, and place orders.'}
+        </Text>
+
+        {!isAuthenticated && onNavigateToAuth && (
+          <TouchableOpacity
+            style={[styles.exploreBtn, { backgroundColor: '#2563eb', marginBottom: 12 }]}
+            activeOpacity={0.85}
+            onPress={() => onNavigateToAuth('login')}
+          >
+            <BoltIcon size={16} color="#ffffff" />
+            <Text style={styles.exploreBtnText}>LOG IN TO CONSOLE</Text>
+          </TouchableOpacity>
+        )}
+
         <TouchableOpacity
-          style={styles.exploreBtn}
+          style={!isAuthenticated ? styles.viewOrdersOutlineBtn : styles.exploreBtn}
           activeOpacity={0.85}
           onPress={onExploreShop}
         >
-          <BoltIcon size={16} color="#ffffff" />
-          <Text style={styles.exploreBtnText}>BROWSE CATALOG</Text>
+          <BoltIcon size={16} color={!isAuthenticated ? '#2563eb' : '#ffffff'} />
+          <Text style={!isAuthenticated ? styles.viewOrdersOutlineText : styles.exploreBtnText}>BROWSE CATALOG (VIEW ONLY)</Text>
         </TouchableOpacity>
 
-        {onNavigateToOrders && (
+        {isAuthenticated && onNavigateToOrders && (
           <TouchableOpacity
             style={styles.viewOrdersOutlineBtn}
             activeOpacity={0.8}
@@ -460,32 +504,54 @@ export default function CartScreen({
 
             {/* Stepper & Remove */}
             <View style={styles.stepperRow}>
-              <View style={styles.stepper}>
-                <TouchableOpacity
-                  style={styles.stepBtn}
-                  activeOpacity={0.7}
-                  onPress={() => updateQuantity(item.id, (item.quantity || 1) - 1)}
-                >
-                  <Text style={styles.stepBtnText}>-</Text>
-                </TouchableOpacity>
-                <Text style={styles.qtyText}>{item.quantity || 1}</Text>
-                <TouchableOpacity
-                  style={styles.stepBtn}
-                  activeOpacity={0.7}
-                  onPress={() => updateQuantity(item.id, (item.quantity || 1) + 1)}
-                >
-                  <Text style={styles.stepBtnText}>+</Text>
-                </TouchableOpacity>
-              </View>
+              {(() => {
+                const isItemLoading = itemActionLoadingId === item.id;
+                return (
+                  <>
+                    <View style={[styles.stepper, isItemLoading && { opacity: 0.6 }]}>
+                      <TouchableOpacity
+                        style={styles.stepBtn}
+                        activeOpacity={0.7}
+                        disabled={isItemLoading}
+                        onPress={() => handleUpdateQty(item.id, (item.quantity || 1) - 1)}
+                      >
+                        <Text style={styles.stepBtnText}>-</Text>
+                      </TouchableOpacity>
+                      {isItemLoading ? (
+                        <View style={{ width: 28, alignItems: 'center', justifyContent: 'center' }}>
+                          <ActivityIndicator size="small" color="#2563eb" />
+                        </View>
+                      ) : (
+                        <Text style={styles.qtyText}>{item.quantity || 1}</Text>
+                      )}
+                      <TouchableOpacity
+                        style={styles.stepBtn}
+                        activeOpacity={0.7}
+                        disabled={isItemLoading}
+                        onPress={() => handleUpdateQty(item.id, (item.quantity || 1) + 1)}
+                      >
+                        <Text style={styles.stepBtnText}>+</Text>
+                      </TouchableOpacity>
+                    </View>
 
-              <TouchableOpacity
-                style={styles.removeBtn}
-                activeOpacity={0.7}
-                onPress={() => removeFromCart(item.id)}
-              >
-                <TrashIcon size={14} color="#ef4444" />
-                <Text style={styles.removeText}>Remove</Text>
-              </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.removeBtn, isItemLoading && { opacity: 0.6 }]}
+                      activeOpacity={0.7}
+                      disabled={isItemLoading}
+                      onPress={() => handleRemoveItem(item.id)}
+                    >
+                      {isItemLoading ? (
+                        <ActivityIndicator size="small" color="#ef4444" />
+                      ) : (
+                        <>
+                          <TrashIcon size={14} color="#ef4444" />
+                          <Text style={styles.removeText}>Remove</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  </>
+                );
+              })()}
             </View>
           </View>
         ))}
@@ -615,7 +681,13 @@ export default function CartScreen({
         <TouchableOpacity
           style={styles.checkoutBtn}
           activeOpacity={0.85}
-          onPress={() => setIsCheckoutVisible(true)}
+          onPress={() => {
+            if (!isAuthenticated) {
+              if (onNavigateToAuth) onNavigateToAuth('login');
+              return;
+            }
+            setIsCheckoutVisible(true);
+          }}
         >
           <View style={styles.checkoutBtnLeft}>
             <BoltIcon size={18} color="#ffffff" />
@@ -632,9 +704,13 @@ export default function CartScreen({
         visible={isCheckoutVisible}
         animationType="slide"
         transparent={true}
+        statusBarTranslucent={true}
         onRequestClose={() => setIsCheckoutVisible(false)}
       >
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+        >
           <View style={styles.modalContent}>
             {/* Modal Header */}
             <View style={styles.modalHeader}>
@@ -652,8 +728,10 @@ export default function CartScreen({
 
             <ScrollView
               style={styles.modalBody}
-              contentContainerStyle={{ paddingBottom: 24 }}
+              contentContainerStyle={{ paddingBottom: 40 }}
               showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
             >
               {!!formError && (
                 <View style={styles.formErrorBox}>
@@ -1013,7 +1091,7 @@ export default function CartScreen({
               </TouchableOpacity>
             </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* ORDER SUCCESS MODAL */}
@@ -1602,9 +1680,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    maxHeight: '88%',
+    maxHeight: '86%',
+    flexShrink: 1,
     paddingHorizontal: 20,
     paddingTop: 16,
+    paddingBottom: Platform.OS === 'ios' ? 24 : 12,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -1630,6 +1710,7 @@ const styles = StyleSheet.create({
   },
   modalBody: {
     paddingTop: 12,
+    flexShrink: 1,
   },
   formErrorBox: {
     backgroundColor: '#fef2f2',

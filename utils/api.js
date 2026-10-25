@@ -3,17 +3,19 @@ import { Platform } from 'react-native';
 
 const getApiBaseUrl = () => {
   // If running on web in the browser, connect to port 8000 of the active host (localhost or LAN IP)
-  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.hostname) {
+  if (Platform.OS === 'web' || Platform.OS === 'android' && typeof window !== 'undefined' && window.location?.hostname) {
     if (process.env.EXPO_PUBLIC_API_URL) {
       return process.env.EXPO_PUBLIC_API_URL;
     } else {
+
       return `http://${window.location.hostname}:8000`;
     }
   }
 
 
   // Default to machine LAN IP for physical mobile devices / Expo Go
-  return 'http://192.168.31.98:8000';
+  // return 'http://192.168.31.98:8000';
+  return process.env.EXPO_PUBLIC_API_URL;
 };
 
 console.log("base", getApiBaseUrl());

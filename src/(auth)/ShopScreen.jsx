@@ -27,6 +27,22 @@ export default function ShopScreen({ initialCategory = 'all', onAddToCart, onSel
   const [loadingCategories, setLoadingCategories] = useState(true);
   const [backendItems, setBackendItems] = useState([]);
   const [loadingItems, setLoadingItems] = useState(true);
+  const [addingProductId, setAddingProductId] = useState(null);
+
+  const handleAddToCartClick = async (product) => {
+    const pid = product._id || product.id;
+    if (addingProductId) return;
+    setAddingProductId(pid);
+    try {
+      if (onAddToCart) {
+        await onAddToCart(product);
+      }
+    } catch (err) {
+      console.warn('Failed to add to cart:', err);
+    } finally {
+      setAddingProductId(null);
+    }
+  };
 
   // 1. Fetch Categories from backend on mount
   useEffect(() => {
@@ -277,30 +293,48 @@ export default function ShopScreen({ initialCategory = 'all', onAddToCart, onSel
                   <Text style={styles.taxText}>Inc. 18% GST • In Stock</Text>
                 </View>
 
-                <TouchableOpacity
-                  style={[styles.addToCartBtn, isInCart(product) && styles.goToCartBtn]}
-                  activeOpacity={0.8}
-                  onPress={(e) => {
-                    e?.stopPropagation?.();
-                    if (isInCart(product)) {
-                      onNavigateToCart && onNavigateToCart();
-                    } else {
-                      onAddToCart && onAddToCart(product);
-                    }
-                  }}
-                >
-                  {isInCart(product) ? (
-                    <>
-                      <CartIcon size={14} color="#ffffff" focused />
-                      <Text style={styles.goToCartText}>GO TO CART</Text>
-                    </>
-                  ) : (
-                    <>
-                      <BoltIcon size={14} color="#ffffff" />
-                      <Text style={styles.addToCartText}>ADD TO CART</Text>
-                    </>
-                  )}
-                </TouchableOpacity>
+                {(() => {
+                  const pid = product._id || product.id;
+                  const isAdding = addingProductId === pid;
+                  const inCart = isInCart(product);
+
+                  return (
+                    <TouchableOpacity
+                      style={[
+                        styles.addToCartBtn,
+                        inCart && styles.goToCartBtn,
+                        isAdding && styles.addToCartBtnLoading,
+                      ]}
+                      activeOpacity={0.8}
+                      disabled={isAdding}
+                      onPress={(e) => {
+                        e?.stopPropagation?.();
+                        if (inCart) {
+                          onNavigateToCart && onNavigateToCart();
+                        } else {
+                          handleAddToCartClick(product);
+                        }
+                      }}
+                    >
+                      {isAdding ? (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <ActivityIndicator size="small" color="#ffffff" />
+                          <Text style={styles.addToCartText}>ADDING...</Text>
+                        </View>
+                      ) : inCart ? (
+                        <>
+                          <CartIcon size={14} color="#ffffff" focused />
+                          <Text style={styles.goToCartText}>GO TO CART</Text>
+                        </>
+                      ) : (
+                        <>
+                          <BoltIcon size={14} color="#ffffff" />
+                          <Text style={styles.addToCartText}>ADD TO CART</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })()}
               </View>
             </TouchableOpacity>
           ))
@@ -536,6 +570,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     borderRadius: 8,
     gap: 5,
+  },
+  addToCartBtnLoading: {
+    opacity: 0.85,
+    paddingHorizontal: 12,
   },
   addToCartText: {
     color: '#ffffff',

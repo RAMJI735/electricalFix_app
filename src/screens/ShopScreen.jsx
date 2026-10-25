@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   StyleSheet,
   Text,
   View,
+  FlatList,
   ScrollView,
   TouchableOpacity,
   TextInput,
@@ -20,15 +21,46 @@ import {
 } from '../components/Icons';
 import { ProductCardSkeleton, CategoryPillSkeleton } from '../components/Skeleton';
 
+const PAGE_SIZE = 4;
+
 export default function ShopScreen({ initialCategory = 'all', onAddToCart, onSelectService, onNavigateToCart }) {
   const { isInCart } = useCart();
   const [selectedCategory, setSelectedCategory] = useState(initialCategory);
   const [searchQuery, setSearchQuery] = useState('');
   const [categories, setCategories] = useState(ELECTRICAL_CATEGORIES);
   const [loadingCategories, setLoadingCategories] = useState(true);
-  const [backendItems, setBackendItems] = useState([]);
+
+  // Pagination states
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
   const [loadingItems, setLoadingItems] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [displayedItems, setDisplayedItems] = useState([]);
+  const [totalItemsCount, setTotalItemsCount] = useState(0);
+  const [addingProductId, setAddingProductId] = useState(null);
+
+  const handleAddToCartClick = async (product) => {
+    const pid = product._id || product.id;
+    if (addingProductId) return;
+    setAddingProductId(pid);
+    try {
+      if (onAddToCart) {
+        await onAddToCart(product);
+      }
+    } catch (err) {
+      console.warn('Failed to add to cart:', err);
+    } finally {
+      setAddingProductId(null);
+    }
+  };
+
+  // Sync category prop if updated from outside
+  useEffect(() => {
+    if (initialCategory && initialCategory !== selectedCategory) {
+      setSelectedCategory(initialCategory);
+    }
+  }, [initialCategory]);
 
   // 1. Fetch Categories from backend
   const loadCategories = useCallback(async () => {
@@ -49,19 +81,33 @@ export default function ShopScreen({ initialCategory = 'all', onAddToCart, onSel
     }
   }, []);
 
-  // 2. Fetch Services/Products by Category ID
-  const loadServicesForCategory = useCallback(async (catId) => {
-    setLoadingItems(true);
-    try {
-      let items = [];
-      if (!catId || catId === 'all') {
-        items = await CategoryService.getServicesByCategoryId('all');
+  // 2. Fetch paginated services/products
+  const loadPage = useCallback(
+    async (pageToLoad = 1, isRefresh = false) => {
+      if (pageToLoad === 1) {
+        if (!isRefresh) setLoadingItems(true);
       } else {
-        items = await CategoryService.getServicesByCategoryId(catId);
+        setLoadingMore(true);
       }
 
-      if (items && items.length > 0) {
-        const formatted = items.map((item) => ({
+      try {
+        let backendItems = [];
+        let hasNext = false;
+
+        try {
+          const res = await CategoryService.getServicesPaginated({
+            categoryId: selectedCategory,
+            page: pageToLoad,
+            limit: PAGE_SIZE,
+            search: searchQuery,
+          });
+          backendItems = res.items || [];
+          hasNext = res.hasNextPage;
+        } catch (err) {
+          console.warn('Backend pagination request failed, falling back:', err.message);
+        }
+
+        const formattedBackend = backendItems.map((item) => ({
           id: item._id || item.id,
           name: item.serviceName || item.productName || item.name,
           brand: item.brand || 'VOLTLINE',
@@ -77,57 +123,183 @@ export default function ShopScreen({ initialCategory = 'all', onAddToCart, onSel
           category: item.category?._id || item.category || 'general',
           isBackend: true,
         }));
-        setBackendItems(formatted);
-      } else {
-        setBackendItems([]);
+
+        // Filter mock catalog items
+        const matchingMocks = MOCK_PRODUCTS.filter((m) => {
+          const matchesCat =
+            selectedCategory === 'all' || m.category === selectedCategory;
+          const matchesSearch =
+            !searchQuery ||
+            m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            m.brand.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            m.spec.toLowerCase().includes(searchQuery.toLowerCase());
+          return matchesCat && matchesSearch;
+        });
+
+        // Combine backend items + matching mocks without duplicate IDs
+        const combined = [...formattedBackend];
+        const uniquePool = Array.from(
+          new Map(combined.map((item) => [item.id, item])).values()
+        );
+
+        setTotalItemsCount(uniquePool.length);
+
+        // Paginate slice
+        const start = (pageToLoad - 1) * PAGE_SIZE;
+        const pageItems = uniquePool.slice(start, start + PAGE_SIZE);
+        const canLoadMore = start + PAGE_SIZE < uniquePool.length || hasNext;
+
+        if (pageToLoad === 1) {
+          setDisplayedItems(pageItems);
+        } else {
+          setDisplayedItems((prev) => {
+            const merged = [...prev, ...pageItems];
+            return Array.from(new Map(merged.map((i) => [i.id, i])).values());
+          });
+        }
+
+        setPage(pageToLoad);
+        setHasMore(canLoadMore);
+      } catch (error) {
+        console.error('Error fetching page:', error);
+      } finally {
+        setLoadingItems(false);
+        setLoadingMore(false);
       }
-    } catch (error) {
-      setBackendItems([]);
-    } finally {
-      setLoadingItems(false);
-    }
-  }, []);
+    },
+    [selectedCategory, searchQuery]
+  );
 
   useEffect(() => {
     loadCategories();
   }, [loadCategories]);
 
   useEffect(() => {
-    loadServicesForCategory(selectedCategory);
-  }, [selectedCategory, loadServicesForCategory]);
+    loadPage(1);
+  }, [loadPage]);
 
   const onRefresh = async () => {
     setRefreshing(true);
     await Promise.all([
       loadCategories(),
-      loadServicesForCategory(selectedCategory),
+      loadPage(1, true),
     ]);
     setRefreshing(false);
   };
 
-  // Combined product list: backend items first, plus mock catalog fallback
-  const allAvailableItems = [
-    ...backendItems,
-    ...MOCK_PRODUCTS.filter(
-      (m) =>
-        selectedCategory === 'all' ||
-        m.category === selectedCategory ||
-        backendItems.length === 0
-    ),
-  ];
+  const handleLoadMore = () => {
+    if (!loadingItems && !loadingMore && hasMore) {
+      loadPage(page + 1);
+    }
+  };
 
-  // Remove duplicates by id
-  const uniqueItems = Array.from(
-    new Map(allAvailableItems.map((item) => [item.id, item])).values()
+  const renderProductItem = ({ item: product }) => (
+    <TouchableOpacity
+      key={product.id}
+      style={styles.card}
+      activeOpacity={0.88}
+      onPress={() => onSelectService && onSelectService(product)}
+    >
+      <View style={styles.cardTop}>
+        <View style={styles.brandRow}>
+          <Text style={styles.brandText}>{product.brand.toUpperCase()}</Text>
+          <View style={styles.badgePill}>
+            <Text style={styles.badgePillText}>{product.badge}</Text>
+          </View>
+        </View>
+        <View style={styles.ratingBadge}>
+          <StarIcon size={12} color="#f59e0b" />
+          <Text style={styles.ratingText}>
+            {product.rating} ({product.reviews})
+          </Text>
+        </View>
+      </View>
+
+      <Text style={styles.productName}>{product.name}</Text>
+      {!!product.model && (
+        <Text style={styles.productModel}>Model: {product.model}</Text>
+      )}
+      <Text style={styles.productSpec}>{product.spec}</Text>
+
+      <View style={styles.cardBottom}>
+        <View>
+          <View style={styles.priceRow}>
+            <Text style={styles.price}>₹{product.price}</Text>
+            <Text style={styles.origPrice}>₹{product.originalPrice}</Text>
+          </View>
+          <Text style={styles.taxText}>Inc. 18% GST • In Stock</Text>
+        </View>
+
+        {(() => {
+          const pid = product._id || product.id;
+          const isAdding = addingProductId === pid;
+          const inCart = isInCart(product);
+
+          return (
+            <TouchableOpacity
+              style={[
+                styles.addToCartBtn,
+                inCart && styles.goToCartBtn,
+                isAdding && styles.addToCartBtnLoading,
+              ]}
+              activeOpacity={0.8}
+              disabled={isAdding}
+              onPress={(e) => {
+                e?.stopPropagation?.();
+                if (inCart) {
+                  onNavigateToCart && onNavigateToCart();
+                } else {
+                  handleAddToCartClick(product);
+                }
+              }}
+            >
+              {isAdding ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <ActivityIndicator size="small" color="#ffffff" />
+                  <Text style={styles.addToCartText}>ADDING...</Text>
+                </View>
+              ) : inCart ? (
+                <>
+                  <CartIcon size={14} color="#ffffff" focused />
+                  <Text style={styles.goToCartText}>GO TO CART</Text>
+                </>
+              ) : (
+                <>
+                  <BoltIcon size={14} color="#ffffff" />
+                  <Text style={styles.addToCartText}>ADD TO CART</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          );
+        })()}
+      </View>
+    </TouchableOpacity>
   );
 
-  const filteredProducts = uniqueItems.filter((product) => {
-    const matchesSearch =
-      product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      product.brand.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      product.spec.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesSearch;
-  });
+  const renderFooter = () => {
+    if (loadingMore) {
+      return (
+        <View style={styles.footerLoader}>
+          <ActivityIndicator size="small" color="#2563eb" />
+          <Text style={styles.footerLoaderText}>Loading more items...</Text>
+        </View>
+      );
+    }
+
+    if (!hasMore && displayedItems.length > 0) {
+      return (
+        <View style={styles.endOfListWrapper}>
+          <View style={styles.endOfListDivider} />
+          <Text style={styles.endOfListText}>
+            All {displayedItems.length} items loaded
+          </Text>
+          <View style={styles.endOfListDivider} />
+        </View>
+      );
+    }
+
+    return <View style={{ height: 90 }} />;
+  };
 
   return (
     <View style={styles.container}>
@@ -139,7 +311,7 @@ export default function ShopScreen({ initialCategory = 'all', onAddToCart, onSel
         </View>
         <View style={styles.itemCountBadge}>
           <Text style={styles.itemCountText}>
-            {filteredProducts.length} {filteredProducts.length === 1 ? 'ITEM' : 'ITEMS'}
+            {loadingItems ? '...' : `${totalItemsCount} ${totalItemsCount === 1 ? 'ITEM' : 'ITEMS'}`}
           </Text>
         </View>
       </View>
@@ -205,11 +377,16 @@ export default function ShopScreen({ initialCategory = 'all', onAddToCart, onSel
         </ScrollView>
       </View>
 
-      {/* Products List */}
-      <ScrollView
+      {/* Products List with Scroll Pagination */}
+      <FlatList
+        data={displayedItems}
+        keyExtractor={(item) => String(item.id)}
+        renderItem={renderProductItem}
         style={styles.productsScroll}
         contentContainerStyle={styles.productsContent}
         showsVerticalScrollIndicator={false}
+        onEndReached={handleLoadMore}
+        onEndReachedThreshold={0.4}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -218,100 +395,34 @@ export default function ShopScreen({ initialCategory = 'all', onAddToCart, onSel
             tintColor="#2563eb"
           />
         }
-      >
-        {loadingItems ? (
-          <>
-            <ProductCardSkeleton />
-            <ProductCardSkeleton />
-            <ProductCardSkeleton />
-            <ProductCardSkeleton />
-          </>
-        ) : filteredProducts.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyIcon}>🔍</Text>
-            <Text style={styles.emptyTitle}>No electrical services found</Text>
-            <Text style={styles.emptySub}>
-              Try searching with different keywords or select a different category filter.
-            </Text>
-            <TouchableOpacity
-              style={styles.resetButton}
-              onPress={() => {
-                setSelectedCategory('all');
-                setSearchQuery('');
-              }}
-            >
-              <Text style={styles.resetButtonText}>Reset Filters</Text>
-            </TouchableOpacity>
-          </View>
-        ) : (
-          filteredProducts.map((product) => (
-            <TouchableOpacity
-              key={product.id}
-              style={styles.card}
-              activeOpacity={0.88}
-              onPress={() => onSelectService && onSelectService(product)}
-            >
-              <View style={styles.cardTop}>
-                <View style={styles.brandRow}>
-                  <Text style={styles.brandText}>{product.brand.toUpperCase()}</Text>
-                  <View style={styles.badgePill}>
-                    <Text style={styles.badgePillText}>{product.badge}</Text>
-                  </View>
-                </View>
-                <View style={styles.ratingBadge}>
-                  <StarIcon size={12} color="#f59e0b" />
-                  <Text style={styles.ratingText}>
-                    {product.rating} ({product.reviews})
-                  </Text>
-                </View>
-              </View>
-
-              <Text style={styles.productName}>{product.name}</Text>
-              {!!product.model && (
-                <Text style={styles.productModel}>Model: {product.model}</Text>
-              )}
-              <Text style={styles.productSpec}>{product.spec}</Text>
-
-              <View style={styles.cardBottom}>
-                <View>
-                  <View style={styles.priceRow}>
-                    <Text style={styles.price}>₹{product.price}</Text>
-                    <Text style={styles.origPrice}>₹{product.originalPrice}</Text>
-                  </View>
-                  <Text style={styles.taxText}>Inc. 18% GST • In Stock</Text>
-                </View>
-
-                <TouchableOpacity
-                  style={[styles.addToCartBtn, isInCart(product) && styles.goToCartBtn]}
-                  activeOpacity={0.8}
-                  onPress={(e) => {
-                    e?.stopPropagation?.();
-                    if (isInCart(product)) {
-                      onNavigateToCart && onNavigateToCart();
-                    } else {
-                      onAddToCart && onAddToCart(product);
-                    }
-                  }}
-                >
-                  {isInCart(product) ? (
-                    <>
-                      <CartIcon size={14} color="#ffffff" focused />
-                      <Text style={styles.goToCartText}>GO TO CART</Text>
-                    </>
-                  ) : (
-                    <>
-                      <BoltIcon size={14} color="#ffffff" />
-                      <Text style={styles.addToCartText}>ADD TO CART</Text>
-                    </>
-                  )}
-                </TouchableOpacity>
-              </View>
-            </TouchableOpacity>
-          ))
-        )}
-
-        <View style={{ height: 90 }} />
-      </ScrollView>
+        ListEmptyComponent={
+          loadingItems ? (
+            <View>
+              <ProductCardSkeleton />
+              <ProductCardSkeleton />
+              <ProductCardSkeleton />
+            </View>
+          ) : (
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyIcon}>🔍</Text>
+              <Text style={styles.emptyTitle}>No electrical services found</Text>
+              <Text style={styles.emptySub}>
+                Try searching with different keywords or select a different category filter.
+              </Text>
+              <TouchableOpacity
+                style={styles.resetButton}
+                onPress={() => {
+                  setSelectedCategory('all');
+                  setSearchQuery('');
+                }}
+              >
+                <Text style={styles.resetButtonText}>Reset Filters</Text>
+              </TouchableOpacity>
+            </View>
+          )
+        }
+        ListFooterComponent={renderFooter}
+      />
     </View>
   );
 }
@@ -541,6 +652,10 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     gap: 5,
   },
+  addToCartBtnLoading: {
+    opacity: 0.85,
+    paddingHorizontal: 12,
+  },
   addToCartText: {
     color: '#ffffff',
     fontSize: 11,
@@ -591,5 +706,35 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: '#2563eb',
+  },
+  footerLoader: {
+    paddingVertical: 20,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+  },
+  footerLoaderText: {
+    fontSize: 12,
+    color: '#64748b',
+    fontWeight: '600',
+  },
+  endOfListWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 24,
+    paddingHorizontal: 20,
+    gap: 12,
+  },
+  endOfListDivider: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#e2e8f0',
+  },
+  endOfListText: {
+    fontSize: 11,
+    color: '#94a3b8',
+    fontWeight: '600',
   },
 });

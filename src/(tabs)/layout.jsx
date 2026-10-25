@@ -6,6 +6,7 @@ import {
     TouchableOpacity,
     StatusBar,
     Platform,
+    Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import HomeScreen from '../screens/HomeScreen';
@@ -17,6 +18,7 @@ import AddressScreen from '../screens/AddressScreen';
 import ServiceDetailPage from '../screens/serviceDetailPage';
 import OrderDetailPage from '../screens/OrderDetailPage';
 import { useCart } from '../context/CartContext';
+import { useAuth } from '../context/AuthContext';
 import {
     HomeIcon,
     ShopIcon,
@@ -35,14 +37,25 @@ export default function TabsLayout({
     const [showingOrders, setShowingOrders] = useState(false);
     const [showingAddresses, setShowingAddresses] = useState(false);
 
-    // Access backend-connected Cart Context
+    // Access backend-connected Cart and Auth Context
     const { totalCartCount, addToCart } = useCart();
+    const { isAuthenticated } = useAuth();
+    const [authModalVisible, setAuthModalVisible] = useState(false);
 
     const handleAddToCart = async (product) => {
+        if (!isAuthenticated) {
+            setAuthModalVisible(true);
+            return false;
+        }
         try {
-            await addToCart(product, 1);
+            return await addToCart(product, 1);
         } catch (err) {
+            if (err?.code === 'AUTH_REQUIRED' || err?.message?.toLowerCase().includes('log in')) {
+                setAuthModalVisible(true);
+                return false;
+            }
             console.error('Failed to add to cart:', err);
+            throw err;
         }
     };
 
@@ -151,6 +164,7 @@ export default function TabsLayout({
                                 setShowingOrders(true);
                             }
                         }}
+                        onNavigateToAuth={onNavigateToAuth}
                     />
                 );
             case 'profile':
@@ -308,6 +322,63 @@ export default function TabsLayout({
                     {!showingOrders && !showingAddresses && !selectedService && !selectedOrder && activeTab === 'profile' && <View style={styles.activeDot} />}
                 </TouchableOpacity>
             </View>
+
+            {/* Login Prompt Modal for Adding to Cart */}
+            <Modal
+                visible={authModalVisible}
+                transparent={true}
+                animationType="fade"
+                onRequestClose={() => setAuthModalVisible(false)}
+            >
+                <View style={styles.modalOverlay}>
+                    <View style={styles.authModalCard}>
+                        {/* Lock Icon Badge */}
+                        <View style={styles.modalBadge}>
+                            <Text style={styles.modalBadgeIcon}>🔒</Text>
+                        </View>
+
+                        <Text style={styles.modalTitle}>Login Required</Text>
+                        <Text style={styles.modalSubtitle}>
+                            You can explore all electrical products and services freely. Please log in or create an account to add items to your cart and place orders.
+                        </Text>
+
+                        {/* Action Buttons */}
+                        <TouchableOpacity
+                            style={styles.modalLoginButton}
+                            activeOpacity={0.85}
+                            onPress={() => {
+                                setAuthModalVisible(false);
+                                if (onNavigateToAuth) {
+                                    onNavigateToAuth('login');
+                                }
+                            }}
+                        >
+                            <Text style={styles.modalLoginButtonText}>LOG IN TO CONSOLE  →</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={styles.modalSignupButton}
+                            activeOpacity={0.8}
+                            onPress={() => {
+                                setAuthModalVisible(false);
+                                if (onNavigateToAuth) {
+                                    onNavigateToAuth('signup');
+                                }
+                            }}
+                        >
+                            <Text style={styles.modalSignupButtonText}>Create New Account</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={styles.modalDismissButton}
+                            activeOpacity={0.7}
+                            onPress={() => setAuthModalVisible(false)}
+                        >
+                            <Text style={styles.modalDismissButtonText}>Continue Browsing (View Only)</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
         </SafeAreaView>
     );
 }
@@ -382,5 +453,103 @@ const styles = StyleSheet.create({
         color: '#ffffff',
         fontSize: 9,
         fontWeight: '800',
+    },
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(15, 23, 42, 0.65)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingHorizontal: 24,
+    },
+    authModalCard: {
+        width: '100%',
+        maxWidth: 380,
+        backgroundColor: '#ffffff',
+        borderRadius: 20,
+        paddingHorizontal: 24,
+        paddingTop: 28,
+        paddingBottom: 22,
+        alignItems: 'center',
+        shadowColor: '#0f172a',
+        shadowOffset: { width: 0, height: 12 },
+        shadowOpacity: 0.25,
+        shadowRadius: 24,
+        elevation: 12,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+    },
+    modalBadge: {
+        width: 56,
+        height: 56,
+        borderRadius: 28,
+        backgroundColor: '#eff6ff',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginBottom: 16,
+        borderWidth: 1,
+        borderColor: '#bfdbfe',
+    },
+    modalBadgeIcon: {
+        fontSize: 24,
+    },
+    modalTitle: {
+        fontSize: 19,
+        fontWeight: '800',
+        color: '#0f172a',
+        textAlign: 'center',
+        marginBottom: 8,
+    },
+    modalSubtitle: {
+        fontSize: 13,
+        color: '#64748b',
+        textAlign: 'center',
+        lineHeight: 19,
+        marginBottom: 22,
+        paddingHorizontal: 8,
+    },
+    modalLoginButton: {
+        width: '100%',
+        height: 46,
+        backgroundColor: '#2563eb',
+        borderRadius: 10,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginBottom: 10,
+        shadowColor: '#2563eb',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.25,
+        shadowRadius: 8,
+        elevation: 4,
+    },
+    modalLoginButtonText: {
+        color: '#ffffff',
+        fontSize: 13,
+        fontWeight: '700',
+        letterSpacing: 0.5,
+    },
+    modalSignupButton: {
+        width: '100%',
+        height: 42,
+        backgroundColor: '#f8fafc',
+        borderRadius: 10,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginBottom: 12,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+    },
+    modalSignupButtonText: {
+        color: '#0f172a',
+        fontSize: 13,
+        fontWeight: '600',
+    },
+    modalDismissButton: {
+        paddingVertical: 8,
+        paddingHorizontal: 16,
+    },
+    modalDismissButtonText: {
+        color: '#94a3b8',
+        fontSize: 12,
+        fontWeight: '600',
     },
 });

@@ -78,6 +78,97 @@ export const CategoryService = {
   },
 
   /**
+   * Fetch services/products with pagination and optional category / search filtering
+   * @param {Object} options - { categoryId, page, limit, search, sortBy }
+   * @returns {Promise<{ items: Array, page: number, totalPages: number, total: number, hasNextPage: boolean }>}
+   */
+  async getServicesPaginated({
+    categoryId = 'all',
+    page = 1,
+    limit = 6,
+    search = '',
+    sortBy,
+  } = {}) {
+    const params = { page, limit };
+    if (search && search.trim()) {
+      params.search = search.trim();
+    }
+    if (sortBy) {
+      params.sortBy = sortBy;
+    }
+
+    try {
+      let response;
+      if (!categoryId || categoryId === 'all') {
+        response = await api.get('/api/services', { params });
+      } else {
+        response = await api.get(`/api/categories/${categoryId}/services`, { params });
+      }
+
+      const resData = response.data;
+      const items = Array.isArray(resData?.data)
+        ? resData.data
+        : Array.isArray(resData)
+        ? resData
+        : [];
+
+      const total = typeof resData?.total === 'number' ? resData.total : items.length;
+      const totalPages =
+        typeof resData?.totalPages === 'number'
+          ? resData.totalPages
+          : Math.ceil(total / limit) || 1;
+      const hasNextPage =
+        typeof resData?.hasNextPage === 'boolean'
+          ? resData.hasNextPage
+          : page < totalPages;
+
+      return {
+        items,
+        page: resData?.page || page,
+        totalPages,
+        total,
+        hasNextPage,
+      };
+    } catch (error) {
+      // Fallback: /api/services?category=:id
+      try {
+        const queryParams =
+          categoryId && categoryId !== 'all'
+            ? { category: categoryId, ...params }
+            : params;
+        const fallback = await api.get('/api/services', { params: queryParams });
+        const resData = fallback.data;
+        const items = Array.isArray(resData?.data)
+          ? resData.data
+          : Array.isArray(resData)
+          ? resData
+          : [];
+
+        const total = typeof resData?.total === 'number' ? resData.total : items.length;
+        const totalPages =
+          typeof resData?.totalPages === 'number'
+            ? resData.totalPages
+            : Math.ceil(total / limit) || 1;
+        const hasNextPage =
+          typeof resData?.hasNextPage === 'boolean'
+            ? resData.hasNextPage
+            : page < totalPages;
+
+        return {
+          items,
+          page: resData?.page || page,
+          totalPages,
+          total,
+          hasNextPage,
+        };
+      } catch (fallbackError) {
+        console.error('Error fetching paginated services:', fallbackError.message);
+        throw fallbackError;
+      }
+    }
+  },
+
+  /**
    * Create a new category
    * @param {Object} categoryData - { categoryName, description, icon, image, status }
    */

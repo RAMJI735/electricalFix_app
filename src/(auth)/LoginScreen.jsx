@@ -117,14 +117,16 @@ export default function LoginScreen({ onNavigateToSignUp, onSkipToHome }) {
           )}
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={{ alignItems: 'center', marginTop: 12 }}
-          onPress={onSkipToHome}
-        >
-          <Text style={{ fontSize: 12, color: '#2563eb', fontWeight: '600' }}>
-            Continue as Guest to Store →
-          </Text>
-        </TouchableOpacity>
+        {onSkipToHome && (
+          <TouchableOpacity
+            style={{ alignItems: 'center', marginTop: 14 }}
+            onPress={onSkipToHome}
+          >
+            <Text style={{ fontSize: 12, color: '#64748b', fontWeight: '600' }}>
+              ← Return to Catalog (View Only)
+            </Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Switch to Sign Up Card */}
