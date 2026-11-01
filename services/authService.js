@@ -1,14 +1,25 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api, setAuthToken } from '../utils/api';
 
 const TOKEN_KEY = 'voltline_auth_token';
 const USER_KEY = 'voltline_auth_user';
 
-// Local storage helper (works safely on web and graceful fallback for memory)
+// In-memory cache for synchronous reads
+const memoryStore = new Map();
+
+// Multi-tier storage helper (Memory + AsyncStorage + Web localStorage)
 const storage = {
   getItem: (key) => {
+    if (memoryStore.has(key)) {
+      return memoryStore.get(key);
+    }
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
-        return window.localStorage.getItem(key);
+        const val = window.localStorage.getItem(key);
+        if (val) {
+          memoryStore.set(key, val);
+          return val;
+        }
       }
     } catch (e) {
       // Ignore storage errors
@@ -16,22 +27,26 @@ const storage = {
     return null;
   },
   setItem: (key, value) => {
+    memoryStore.set(key, value);
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
         window.localStorage.setItem(key, value);
       }
-    } catch (e) {
-      // Ignore storage errors
-    }
+    } catch (e) {}
+    try {
+      AsyncStorage.setItem(key, value).catch(() => {});
+    } catch (e) {}
   },
   removeItem: (key) => {
+    memoryStore.delete(key);
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
         window.localStorage.removeItem(key);
       }
-    } catch (e) {
-      // Ignore storage errors
-    }
+    } catch (e) {}
+    try {
+      AsyncStorage.removeItem(key).catch(() => {});
+    } catch (e) {}
   },
 };
 
@@ -90,7 +105,40 @@ export const AuthService = {
   },
 
   /**
-   * Restore stored session on app load
+   * Restore stored session on app load (async for Android APK AsyncStorage)
+   */
+  async restoreSessionAsync() {
+    try {
+      let storedToken = memoryStore.get(TOKEN_KEY);
+      let storedUser = memoryStore.get(USER_KEY);
+
+      if (!storedToken || !storedUser) {
+        const [tokenPair, userPair] = await AsyncStorage.multiGet([TOKEN_KEY, USER_KEY]).catch(() => [null, null]);
+        if (tokenPair && tokenPair[1]) {
+          storedToken = tokenPair[1];
+          memoryStore.set(TOKEN_KEY, storedToken);
+        }
+        if (userPair && userPair[1]) {
+          storedUser = userPair[1];
+          memoryStore.set(USER_KEY, storedUser);
+        }
+      }
+
+      if (storedToken) {
+        setAuthToken(storedToken);
+      }
+
+      return {
+        token: storedToken || null,
+        user: storedUser ? JSON.parse(storedUser) : null,
+      };
+    } catch (e) {
+      return { token: null, user: null };
+    }
+  },
+
+  /**
+   * Restore stored session on app load (synchronous fallback)
    */
   getStoredSession() {
     try {

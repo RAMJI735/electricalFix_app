@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   StyleSheet,
   Text,
@@ -9,8 +9,11 @@ import {
   TextInput,
   ActivityIndicator,
   RefreshControl,
+  Platform,
 } from 'react-native';
-import { ELECTRICAL_CATEGORIES, MOCK_PRODUCTS } from '../constants/mockData';
+import { useQueryClient } from '@tanstack/react-query';
+import { ELECTRICAL_CATEGORIES } from '../constants/mockData';
+import { useCategories, serviceKeys } from '../hooks';
 import CategoryService from '../../services/categoryService';
 import { useCart } from '../context/CartContext';
 import {
@@ -19,18 +22,25 @@ import {
   BoltIcon,
   CartIcon,
 } from '../components/Icons';
-import { ProductCardSkeleton, CategoryPillSkeleton } from '../components/Skeleton';
+import {
+  ProductCardSkeleton,
+  CategoryPillSkeleton,
+} from '../components/Skeleton';
 
 const PAGE_SIZE = 4;
 
-export default function ShopScreen({ initialCategory = 'all', onAddToCart, onSelectService, onNavigateToCart }) {
+export default function ShopScreen({
+  initialCategory = 'all',
+  onAddToCart,
+  onSelectService,
+  onNavigateToCart,
+}) {
+  const queryClient = useQueryClient();
   const { isInCart } = useCart();
+
   const [selectedCategory, setSelectedCategory] = useState(initialCategory);
   const [searchQuery, setSearchQuery] = useState('');
   const [categories, setCategories] = useState(ELECTRICAL_CATEGORIES);
-  const [loadingCategories, setLoadingCategories] = useState(true);
-
-  // Pagination states
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [loadingItems, setLoadingItems] = useState(true);
@@ -40,48 +50,33 @@ export default function ShopScreen({ initialCategory = 'all', onAddToCart, onSel
   const [totalItemsCount, setTotalItemsCount] = useState(0);
   const [addingProductId, setAddingProductId] = useState(null);
 
-  const handleAddToCartClick = async (product) => {
-    const pid = product._id || product.id;
-    if (addingProductId) return;
-    setAddingProductId(pid);
-    try {
-      if (onAddToCart) {
-        await onAddToCart(product);
-      }
-    } catch (err) {
-      console.warn('Failed to add to cart:', err);
-    } finally {
-      setAddingProductId(null);
-    }
-  };
+  const {
+    data: categoryData,
+    isLoading: loadingCategories,
+    refetch: refetchCategories,
+  } = useCategories();
 
-  // Sync category prop if updated from outside
   useEffect(() => {
-    if (initialCategory && initialCategory !== selectedCategory) {
-      setSelectedCategory(initialCategory);
-    }
+    setSelectedCategory(initialCategory || 'all');
   }, [initialCategory]);
 
-  // 1. Fetch Categories from backend
-  const loadCategories = useCallback(async () => {
-    try {
-      const backendCategories = await CategoryService.getCategories();
-      if (backendCategories && backendCategories.length > 0) {
-        const formatted = backendCategories.map((c) => ({
-          id: c._id || c.id,
-          name: c.categoryName || c.name,
-          icon: c.icon || '⚡',
-        }));
-        setCategories([{ id: 'all', name: 'All Products', icon: '⚡' }, ...formatted]);
-      }
-    } catch (err) {
-      // Fallback to local default categories
-    } finally {
-      setLoadingCategories(false);
-    }
-  }, []);
+  useEffect(() => {
+    if (categoryData?.length) {
+      const formattedCategories = categoryData.map((category) => ({
+        id: category._id || category.id,
+        name: category.categoryName || category.name,
+        icon: category.icon || '⚡',
+      }));
 
-  // 2. Fetch paginated services/products
+      setCategories([
+        { id: 'all', name: 'All Products', icon: '⚡' },
+        ...formattedCategories,
+      ]);
+    } else if (!loadingCategories) {
+      setCategories(ELECTRICAL_CATEGORIES);
+    }
+  }, [categoryData, loadingCategories]);
+
   const loadPage = useCallback(
     async (pageToLoad = 1, isRefresh = false) => {
       if (pageToLoad === 1) {
@@ -91,88 +86,118 @@ export default function ShopScreen({ initialCategory = 'all', onAddToCart, onSel
       }
 
       try {
-        let backendItems = [];
-        let hasNext = false;
+        const queryParams = {
+          page: pageToLoad,
+          limit: PAGE_SIZE,
+          search: searchQuery.trim(),
+          type: 'product',
+          categoryId: selectedCategory || 'all',
+        };
 
-        try {
-          const res = await CategoryService.getServicesPaginated({
-            categoryId: selectedCategory,
-            page: pageToLoad,
-            limit: PAGE_SIZE,
-            search: searchQuery,
-          });
-          backendItems = res.items || [];
-          hasNext = res.hasNextPage;
-        } catch (err) {
-          console.warn('Backend pagination request failed, falling back:', err.message);
+        const queryKey = serviceKeys.paginated(queryParams);
+
+        if (isRefresh) {
+          await queryClient.invalidateQueries({ queryKey });
         }
 
-        const formattedBackend = backendItems.map((item) => ({
-          id: item._id || item.id,
-          name: item.serviceName || item.productName || item.name,
-          brand: item.brand || 'VOLTLINE',
-          model: item.model || '',
-          spec: item.estimated_time
-            ? `⏱ ${item.estimated_time} • Warranty: ${item.warranty || '90 Days'}`
-            : (item.description || item.spec || 'Certified Electrical Equipment'),
-          price: item.price || 499,
-          originalPrice: Math.round((item.price || 499) * 1.25),
-          rating: 4.8,
-          reviews: 58,
-          badge: item.type === 'service' ? 'SERVICE' : 'VERIFIED',
-          category: item.category?._id || item.category || 'general',
-          isBackend: true,
-        }));
-
-        // Filter mock catalog items
-        const matchingMocks = MOCK_PRODUCTS.filter((m) => {
-          const matchesCat =
-            selectedCategory === 'all' || m.category === selectedCategory;
-          const matchesSearch =
-            !searchQuery ||
-            m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            m.brand.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            m.spec.toLowerCase().includes(searchQuery.toLowerCase());
-          return matchesCat && matchesSearch;
+        const response = await queryClient.fetchQuery({
+          queryKey,
+          queryFn: () =>
+            CategoryService.getServicesPaginated(queryParams),
+          staleTime: 1000 * 60, // 1 minute
         });
 
-        // Combine backend items + matching mocks without duplicate IDs
-        const combined = [...formattedBackend];
-        const uniquePool = Array.from(
-          new Map(combined.map((item) => [item.id, item])).values()
+        const backendItems =
+          response?.items ||
+          response?.data ||
+          [];
+
+        const hasNext = Boolean(
+          response?.hasNextPage
         );
 
-        setTotalItemsCount(uniquePool.length);
+        const formattedItems = backendItems.map((item) => {
+          const price = item.price ?? 499;
 
-        // Paginate slice
-        const start = (pageToLoad - 1) * PAGE_SIZE;
-        const pageItems = uniquePool.slice(start, start + PAGE_SIZE);
-        const canLoadMore = start + PAGE_SIZE < uniquePool.length || hasNext;
+          return {
+            ...item,
+            id: item._id || item.id,
+            name:
+              item.serviceName ||
+              item.productName ||
+              item.name ||
+              'Unnamed Product',
+            brand: item.brand || 'VOLTLINE',
+            model: item.model || '',
+            spec: item.estimated_time
+              ? `⏱ ${item.estimated_time} • Warranty: ${item.warranty || '90 Days'
+              }`
+              : item.description ||
+              item.spec ||
+              'Certified Electrical Equipment',
+            price,
+            originalPrice: Math.round(price * 1.25),
+            rating: 4.8,
+            reviews: 58,
+            badge:
+              item.type === 'service'
+                ? 'SERVICE'
+                : 'VERIFIED',
+            category:
+              item.category?._id ||
+              item.category ||
+              'general',
+            isBackend: true,
+          };
+        });
+
+        const uniqueItems = Array.from(
+          new Map(
+            formattedItems.map((item) => [
+              item.id,
+              item,
+            ])
+          ).values()
+        );
 
         if (pageToLoad === 1) {
-          setDisplayedItems(pageItems);
+          setDisplayedItems(uniqueItems);
         } else {
-          setDisplayedItems((prev) => {
-            const merged = [...prev, ...pageItems];
-            return Array.from(new Map(merged.map((i) => [i.id, i])).values());
-          });
+          setDisplayedItems((previousItems) =>
+            Array.from(
+              new Map(
+                [...previousItems, ...uniqueItems].map(
+                  (item) => [item.id, item]
+                )
+              ).values()
+            )
+          );
         }
 
+        setTotalItemsCount(
+          pageToLoad === 1
+            ? response?.total ?? uniqueItems.length
+            : (response?.total ?? 0)
+        );
+
         setPage(pageToLoad);
-        setHasMore(canLoadMore);
+        setHasMore(hasNext);
       } catch (error) {
-        console.error('Error fetching page:', error);
+        console.error(
+          'Error fetching products:',
+          error
+        );
       } finally {
         setLoadingItems(false);
         setLoadingMore(false);
       }
     },
-    [selectedCategory, searchQuery]
+    [
+      queryClient,
+      selectedCategory,
+      searchQuery,
+    ]
   );
-
-  useEffect(() => {
-    loadCategories();
-  }, [loadCategories]);
 
   useEffect(() => {
     loadPage(1);
@@ -180,11 +205,15 @@ export default function ShopScreen({ initialCategory = 'all', onAddToCart, onSel
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([
-      loadCategories(),
-      loadPage(1, true),
-    ]);
-    setRefreshing(false);
+
+    try {
+      await Promise.all([
+        refetchCategories(),
+        loadPage(1, true),
+      ]);
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const handleLoadMore = () => {
@@ -193,95 +222,126 @@ export default function ShopScreen({ initialCategory = 'all', onAddToCart, onSel
     }
   };
 
-  const renderProductItem = ({ item: product }) => (
-    <TouchableOpacity
-      key={product.id}
-      style={styles.card}
-      activeOpacity={0.88}
-      onPress={() => onSelectService && onSelectService(product)}
-    >
-      <View style={styles.cardTop}>
-        <View style={styles.brandRow}>
-          <Text style={styles.brandText}>{product.brand.toUpperCase()}</Text>
-          <View style={styles.badgePill}>
-            <Text style={styles.badgePillText}>{product.badge}</Text>
+  const handleAddToCartClick = async (product) => {
+    const productId = product._id || product.id;
+
+    if (addingProductId || !onAddToCart) return;
+
+    setAddingProductId(productId);
+
+    try {
+      await onAddToCart(product);
+    } catch (error) {
+      console.warn('Failed to add to cart:', error);
+    } finally {
+      setAddingProductId(null);
+    }
+  };
+
+  const renderProductItem = ({ item: product }) => {
+    const productId = product._id || product.id;
+    const isAdding = addingProductId === productId;
+    const inCart = isInCart(product);
+
+    return (
+      <TouchableOpacity
+        style={styles.card}
+        activeOpacity={0.88}
+        onPress={() => onSelectService?.(product)}
+      >
+        <View style={styles.cardTop}>
+          <View style={styles.brandRow}>
+            <Text style={styles.brandText}>
+              {(product.brand || 'VOLTLINE').toUpperCase()}
+            </Text>
+
+            <View style={styles.badgePill}>
+              <Text style={styles.badgePillText}>
+                {product.badge}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.ratingBadge}>
+            <StarIcon size={12} color="#f59e0b" />
+            <Text style={styles.ratingText}>
+              {product.rating} ({product.reviews})
+            </Text>
           </View>
         </View>
-        <View style={styles.ratingBadge}>
-          <StarIcon size={12} color="#f59e0b" />
-          <Text style={styles.ratingText}>
-            {product.rating} ({product.reviews})
+
+        <Text style={styles.productName}>{product.name}</Text>
+
+        {!!product.model && (
+          <Text style={styles.productModel}>
+            Model: {product.model}
           </Text>
-        </View>
-      </View>
+        )}
 
-      <Text style={styles.productName}>{product.name}</Text>
-      {!!product.model && (
-        <Text style={styles.productModel}>Model: {product.model}</Text>
-      )}
-      <Text style={styles.productSpec}>{product.spec}</Text>
+        <Text style={styles.productSpec}>{product.spec}</Text>
 
-      <View style={styles.cardBottom}>
-        <View>
-          <View style={styles.priceRow}>
-            <Text style={styles.price}>₹{product.price}</Text>
-            <Text style={styles.origPrice}>₹{product.originalPrice}</Text>
+        <View style={styles.cardBottom}>
+          <View>
+            <View style={styles.priceRow}>
+              <Text style={styles.price}>₹{product.price}</Text>
+              <Text style={styles.origPrice}>
+                ₹{product.originalPrice}
+              </Text>
+            </View>
+
+            <Text style={styles.taxText}>
+              Inc. 18% GST • In Stock
+            </Text>
           </View>
-          <Text style={styles.taxText}>Inc. 18% GST • In Stock</Text>
+
+          <TouchableOpacity
+            style={[
+              styles.addToCartBtn,
+              inCart && styles.goToCartBtn,
+              isAdding && styles.addToCartBtnLoading,
+            ]}
+            activeOpacity={0.8}
+            disabled={isAdding}
+            onPress={(event) => {
+              event?.stopPropagation?.();
+
+              if (inCart) {
+                onNavigateToCart?.();
+              } else {
+                handleAddToCartClick(product);
+              }
+            }}
+          >
+            {isAdding ? (
+              <View style={styles.loadingButtonContent}>
+                <ActivityIndicator size="small" color="#ffffff" />
+                <Text style={styles.addToCartText}>ADDING...</Text>
+              </View>
+            ) : inCart ? (
+              <>
+                <CartIcon size={14} color="#ffffff" focused />
+                <Text style={styles.goToCartText}>GO TO CART</Text>
+              </>
+            ) : (
+              <>
+                <BoltIcon size={14} color="#ffffff" />
+                <Text style={styles.addToCartText}>ADD TO CART</Text>
+              </>
+            )}
+          </TouchableOpacity>
         </View>
-
-        {(() => {
-          const pid = product._id || product.id;
-          const isAdding = addingProductId === pid;
-          const inCart = isInCart(product);
-
-          return (
-            <TouchableOpacity
-              style={[
-                styles.addToCartBtn,
-                inCart && styles.goToCartBtn,
-                isAdding && styles.addToCartBtnLoading,
-              ]}
-              activeOpacity={0.8}
-              disabled={isAdding}
-              onPress={(e) => {
-                e?.stopPropagation?.();
-                if (inCart) {
-                  onNavigateToCart && onNavigateToCart();
-                } else {
-                  handleAddToCartClick(product);
-                }
-              }}
-            >
-              {isAdding ? (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <ActivityIndicator size="small" color="#ffffff" />
-                  <Text style={styles.addToCartText}>ADDING...</Text>
-                </View>
-              ) : inCart ? (
-                <>
-                  <CartIcon size={14} color="#ffffff" focused />
-                  <Text style={styles.goToCartText}>GO TO CART</Text>
-                </>
-              ) : (
-                <>
-                  <BoltIcon size={14} color="#ffffff" />
-                  <Text style={styles.addToCartText}>ADD TO CART</Text>
-                </>
-              )}
-            </TouchableOpacity>
-          );
-        })()}
-      </View>
-    </TouchableOpacity>
-  );
+      </TouchableOpacity>
+    );
+  };
 
   const renderFooter = () => {
     if (loadingMore) {
       return (
         <View style={styles.footerLoader}>
           <ActivityIndicator size="small" color="#2563eb" />
-          <Text style={styles.footerLoaderText}>Loading more items...</Text>
+          <Text style={styles.footerLoaderText}>
+            Loading more items...
+          </Text>
         </View>
       );
     }
@@ -298,27 +358,30 @@ export default function ShopScreen({ initialCategory = 'all', onAddToCart, onSel
       );
     }
 
-    return <View style={{ height: 90 }} />;
+    return <View style={styles.footerSpace} />;
   };
 
   return (
     <View style={styles.container}>
-      {/* Header bar */}
       <View style={styles.header}>
         <View>
           <Text style={styles.eyebrow}>CATALOG & INVENTORY</Text>
           <Text style={styles.title}>Electrical Shop</Text>
         </View>
+
         <View style={styles.itemCountBadge}>
           <Text style={styles.itemCountText}>
-            {loadingItems ? '...' : `${totalItemsCount} ${totalItemsCount === 1 ? 'ITEM' : 'ITEMS'}`}
+            {loadingItems
+              ? '...'
+              : `${totalItemsCount} ${totalItemsCount === 1 ? 'ITEM' : 'ITEMS'
+              }`}
           </Text>
         </View>
       </View>
 
-      {/* Search Input */}
       <View style={styles.searchContainer}>
         <SearchIcon size={18} color="#64748b" />
+
         <TextInput
           style={styles.searchInput}
           placeholder="Filter by wire gauge, brand, switch type..."
@@ -326,14 +389,14 @@ export default function ShopScreen({ initialCategory = 'all', onAddToCart, onSel
           value={searchQuery}
           onChangeText={setSearchQuery}
         />
-        {searchQuery.length > 0 && (
+
+        {!!searchQuery && (
           <TouchableOpacity onPress={() => setSearchQuery('')}>
             <Text style={styles.clearSearchText}>Clear</Text>
           </TouchableOpacity>
         )}
       </View>
 
-      {/* Category Pills */}
       <View style={styles.pillsWrapper}>
         <ScrollView
           horizontal
@@ -349,26 +412,28 @@ export default function ShopScreen({ initialCategory = 'all', onAddToCart, onSel
               <CategoryPillSkeleton />
             </>
           ) : (
-            categories.map((cat) => {
-              const isSelected = selectedCategory === cat.id;
+            categories.map((category) => {
+              const isSelected = selectedCategory === category.id;
+
               return (
                 <TouchableOpacity
-                  key={cat.id}
+                  key={category.id}
                   style={[
                     styles.pill,
                     isSelected && styles.pillActive,
                   ]}
                   activeOpacity={0.7}
-                  onPress={() => setSelectedCategory(cat.id)}
+                  onPress={() => setSelectedCategory(category.id)}
                 >
-                  <Text style={styles.pillIcon}>{cat.icon}</Text>
+                  <Text style={styles.pillIcon}>{category.icon}</Text>
+
                   <Text
                     style={[
                       styles.pillText,
                       isSelected && styles.pillTextActive,
                     ]}
                   >
-                    {cat.name}
+                    {category.name}
                   </Text>
                 </TouchableOpacity>
               );
@@ -377,16 +442,22 @@ export default function ShopScreen({ initialCategory = 'all', onAddToCart, onSel
         </ScrollView>
       </View>
 
-      {/* Products List with Scroll Pagination */}
       <FlatList
         data={displayedItems}
-        keyExtractor={(item) => String(item.id)}
+        keyExtractor={(item, index) =>
+          String(item.id ?? index)
+        }
         renderItem={renderProductItem}
         style={styles.productsScroll}
         contentContainerStyle={styles.productsContent}
         showsVerticalScrollIndicator={false}
         onEndReached={handleLoadMore}
         onEndReachedThreshold={0.4}
+        removeClippedSubviews={Platform.OS === 'android'}
+        maxToRenderPerBatch={6}
+        windowSize={5}
+        initialNumToRender={4}
+        updateCellsBatchingPeriod={50}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -405,10 +476,14 @@ export default function ShopScreen({ initialCategory = 'all', onAddToCart, onSel
           ) : (
             <View style={styles.emptyContainer}>
               <Text style={styles.emptyIcon}>🔍</Text>
-              <Text style={styles.emptyTitle}>No electrical services found</Text>
-              <Text style={styles.emptySub}>
-                Try searching with different keywords or select a different category filter.
+              <Text style={styles.emptyTitle}>
+                No electrical services found
               </Text>
+              <Text style={styles.emptySub}>
+                Try searching with different keywords or select a
+                different category filter.
+              </Text>
+
               <TouchableOpacity
                 style={styles.resetButton}
                 onPress={() => {
@@ -416,7 +491,9 @@ export default function ShopScreen({ initialCategory = 'all', onAddToCart, onSel
                   setSearchQuery('');
                 }}
               >
-                <Text style={styles.resetButtonText}>Reset Filters</Text>
+                <Text style={styles.resetButtonText}>
+                  Reset Filters
+                </Text>
               </TouchableOpacity>
             </View>
           )
@@ -521,22 +598,6 @@ const styles = StyleSheet.create({
   },
   pillTextActive: {
     color: '#ffffff',
-  },
-  loadingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 8,
-    gap: 8,
-    backgroundColor: '#eff6ff',
-    marginHorizontal: 16,
-    borderRadius: 8,
-    marginBottom: 8,
-  },
-  loadingText: {
-    fontSize: 11,
-    color: '#2563eb',
-    fontWeight: '600',
   },
   productsScroll: {
     flex: 1,
@@ -656,6 +717,11 @@ const styles = StyleSheet.create({
     opacity: 0.85,
     paddingHorizontal: 12,
   },
+  loadingButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
   addToCartText: {
     color: '#ffffff',
     fontSize: 11,
@@ -718,6 +784,9 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#64748b',
     fontWeight: '600',
+  },
+  footerSpace: {
+    height: 90,
   },
   endOfListWrapper: {
     flexDirection: 'row',

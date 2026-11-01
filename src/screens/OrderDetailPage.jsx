@@ -12,6 +12,7 @@ import {
   Share,
   RefreshControl,
 } from 'react-native';
+import { useOrderDetails, useCancelOrderMutation } from '../hooks';
 import OrderService from '../../services/orderService';
 import { useCart } from '../context/CartContext';
 import {
@@ -29,10 +30,22 @@ export default function OrderDetailPage({
   onBack,
   onReorderSuccess,
 }) {
-  const [order, setOrder] = useState(initialOrder);
-  const [loading, setLoading] = useState(!initialOrder);
+  const targetId = orderId || initialOrder?._id;
+  const {
+    data: fetchedOrder,
+    isLoading: queryLoading,
+    error: queryError,
+    refetch,
+  } = useOrderDetails(targetId, {
+    initialData: initialOrder || undefined,
+  });
+
+  const cancelOrderMutation = useCancelOrderMutation();
+  const order = fetchedOrder || initialOrder;
+  const loading = queryLoading && !order;
+  const error = queryError ? (queryError.message || 'Failed to retrieve order details') : null;
+
   const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState(null);
   const [cancelling, setCancelling] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [cancelReason, setCancelReason] = useState('Change of requirements');
@@ -41,33 +54,9 @@ export default function OrderDetailPage({
 
   const { addToCart } = useCart();
 
-  // Load single order details
-  const fetchOrderDetails = useCallback(async () => {
-    if (!orderId && !initialOrder?._id) return;
-    const targetId = orderId || initialOrder?._id;
-    try {
-      setError(null);
-      const data = await OrderService.getOrderById(targetId);
-      if (data) {
-        setOrder(data);
-      }
-    } catch (err) {
-      console.warn('Failed to load order detail:', err.message);
-      if (!order) {
-        setError(err.message || 'Failed to retrieve order details');
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, [orderId, initialOrder, order]);
-
-  useEffect(() => {
-    fetchOrderDetails();
-  }, [fetchOrderDetails]);
-
   const onRefresh = async () => {
     setRefreshing(true);
-    await fetchOrderDetails();
+    await refetch();
     setRefreshing(false);
   };
 
@@ -76,8 +65,8 @@ export default function OrderDetailPage({
     if (!order?._id) return;
     setCancelling(true);
     try {
-      const updated = await OrderService.cancelOrder(order._id, cancelReason);
-      setOrder(updated);
+      await cancelOrderMutation.mutateAsync({ id: order._id, reason: cancelReason });
+      await refetch();
       setShowCancelModal(false);
       if (Platform.OS === 'web') {
         window.alert('Order has been cancelled successfully.');

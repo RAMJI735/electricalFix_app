@@ -9,6 +9,7 @@ import {
   Platform,
   RefreshControl,
 } from 'react-native';
+import { useServiceDetails } from '../hooks';
 import ServiceService from '../../services/serviceService';
 import { Skeleton } from '../components/Skeleton';
 import {
@@ -27,43 +28,27 @@ export default function ServiceDetailPage({
   onNavigateToCart,
 }) {
   const { isInCart } = useCart();
-  const [service, setService] = useState(initialService);
-  const [loading, setLoading] = useState(!initialService);
   const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState(null);
   const [added, setAdded] = useState(false);
   const [adding, setAdding] = useState(false);
 
-  // Fetch full details via getServiceById
-  const fetchServiceDetails = useCallback(async () => {
-    if (!serviceId) {
-      if (!initialService) setError('No service ID provided');
-      setLoading(false);
-      return;
-    }
+  // Fetch full details using TanStack Query hook
+  const {
+    data: fetchedService,
+    isLoading: queryLoading,
+    error: queryError,
+    refetch,
+  } = useServiceDetails(serviceId, {
+    initialData: initialService || undefined,
+  });
 
-    try {
-      setError(null);
-      const data = await ServiceService.getServiceById(serviceId);
-      if (data) {
-        setService(data);
-      }
-    } catch (err) {
-      if (!initialService && !service) {
-        setError(err.message || 'Failed to load service details');
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, [serviceId, initialService, service]);
-
-  useEffect(() => {
-    fetchServiceDetails();
-  }, []);
+  const service = fetchedService || initialService;
+  const loading = queryLoading && !service;
+  const error = queryError ? (queryError.message || 'Failed to load service details') : null;
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await fetchServiceDetails();
+    await refetch();
     setRefreshing(false);
   };
 

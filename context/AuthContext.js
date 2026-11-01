@@ -11,17 +11,24 @@ export function AuthProvider({ children }) {
 
   // Restore session on mount
   useEffect(() => {
-    try {
-      const session = AuthService.getStoredSession();
-      if (session.user) {
-        setUser(session.user);
-        setToken(session.token);
+    let isMounted = true;
+    const initAuth = async () => {
+      try {
+        const session = await AuthService.restoreSessionAsync();
+        if (isMounted && session.user) {
+          setUser(session.user);
+          setToken(session.token);
+        }
+      } catch (err) {
+        console.warn('Session restoration failed:', err);
+      } finally {
+        if (isMounted) setIsLoading(false);
       }
-    } catch (err) {
-      console.warn('Session restoration failed:', err);
-    } finally {
-      setIsLoading(false);
-    }
+    };
+    initAuth();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   /**

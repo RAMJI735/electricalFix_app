@@ -79,7 +79,7 @@ export const CategoryService = {
 
   /**
    * Fetch services/products with pagination and optional category / search filtering
-   * @param {Object} options - { categoryId, page, limit, search, sortBy }
+   * @param {Object} options - { categoryId, page, limit, search, sortBy, type }
    * @returns {Promise<{ items: Array, page: number, totalPages: number, total: number, hasNextPage: boolean }>}
    */
   async getServicesPaginated({
@@ -88,13 +88,18 @@ export const CategoryService = {
     limit = 6,
     search = '',
     sortBy,
+    type,
+    ...rest
   } = {}) {
-    const params = { page, limit };
+    const params = { page, limit, ...rest };
     if (search && search.trim()) {
       params.search = search.trim();
     }
     if (sortBy) {
       params.sortBy = sortBy;
+    }
+    if (type) {
+      params.type = type;
     }
 
     try {

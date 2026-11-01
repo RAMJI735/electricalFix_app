@@ -10,6 +10,8 @@ import {
   Alert,
   Platform,
 } from 'react-native';
+import { useOrders, useCancelOrderMutation } from '../hooks';
+import { useAuth } from '../context/AuthContext';
 import OrderService from '../../services/orderService';
 import {
   PackageIcon,
@@ -20,34 +22,37 @@ import {
   ChevronRightIcon,
 } from '../components/Icons';
 
-export default function OrdersScreen({ onBack, onExploreShop, onSelectOrder }) {
-  const [orders, setOrders] = useState([]);
-  const [loading, setLoading] = useState(true);
+export default function OrdersScreen({ onBack, onExploreShop, onSelectOrder, onNavigateToAuth }) {
+  const { user, isAuthenticated } = useAuth();
+  const userId = user?._id || user?.id;
+
+  // Fetch individual user orders with memoized select to avoid unnecessary data transforms and re-renders
+  const {
+    data: orders = [],
+    isLoading: loading,
+    refetch,
+  } = useOrders(userId, {
+    enabled: Boolean(userId),
+    select: useCallback((rawOrders) => {
+      if (!Array.isArray(rawOrders)) return [];
+      return rawOrders.map((order) => ({
+        ...order,
+        id: order._id || order.id,
+      }));
+    }, []),
+  });
+
+  const cancelOrderMutation = useCancelOrderMutation();
+
   const [refreshing, setRefreshing] = useState(false);
   const [filterTab, setFilterTab] = useState('all'); // 'all', 'active', 'delivered', 'cancelled'
   const [expandedOrderId, setExpandedOrderId] = useState(null);
   const [cancellingId, setCancellingId] = useState(null);
 
-  // Fetch orders
-  const loadOrders = useCallback(async () => {
-    try {
-      const data = await OrderService.getOrders();
-      setOrders(Array.isArray(data) ? data : []);
-    } catch (err) {
-      console.warn('Failed to load orders:', err.message);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    loadOrders();
-  }, [loadOrders]);
-
-  const onRefresh = () => {
+  const onRefresh = async () => {
     setRefreshing(true);
-    loadOrders();
+    await refetch();
+    setRefreshing(false);
   };
 
   // Cancel order handler
@@ -55,8 +60,7 @@ export default function OrdersScreen({ onBack, onExploreShop, onSelectOrder }) {
     const doCancel = async () => {
       setCancellingId(order._id);
       try {
-        await OrderService.cancelOrder(order._id, 'Cancelled by user request');
-        await loadOrders();
+        await cancelOrderMutation.mutateAsync({ id: order._id, reason: 'Cancelled by user request' });
       } catch (err) {
         if (Platform.OS === 'web') {
           window.alert(err.message || 'Failed to cancel order');
@@ -194,6 +198,35 @@ export default function OrdersScreen({ onBack, onExploreShop, onSelectOrder }) {
           <ActivityIndicator size="large" color="#2563eb" />
           <Text style={styles.loadingText}>Fetching order records...</Text>
         </View>
+      ) : !isAuthenticated ? (
+        <View style={styles.emptyContainer}>
+          <View style={styles.emptyIconCircle}>
+            <Text style={{ fontSize: 32 }}>🔒</Text>
+          </View>
+          <Text style={styles.emptyTitle}>Sign In to View Orders</Text>
+          <Text style={styles.emptySubtitle}>
+            Please sign in to your account to view and track your individual orders, invoices, and service dispatches.
+          </Text>
+          {onNavigateToAuth ? (
+            <TouchableOpacity
+              style={styles.exploreBtn}
+              activeOpacity={0.85}
+              onPress={() => onNavigateToAuth('login')}
+            >
+              <BoltIcon size={16} color="#ffffff" />
+              <Text style={styles.exploreBtnText}>SIGN IN TO ACCOUNT</Text>
+            </TouchableOpacity>
+          ) : onExploreShop ? (
+            <TouchableOpacity
+              style={styles.exploreBtn}
+              activeOpacity={0.85}
+              onPress={onExploreShop}
+            >
+              <BoltIcon size={16} color="#ffffff" />
+              <Text style={styles.exploreBtnText}>EXPLORE ELECTRICAL CATALOG</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
       ) : filteredOrders.length === 0 ? (
         <View style={styles.emptyContainer}>
           <View style={styles.emptyIconCircle}>
@@ -230,12 +263,12 @@ export default function OrdersScreen({ onBack, onExploreShop, onSelectOrder }) {
             const statusStyle = getStatusColor(order.orderStatus);
             const dateStr = order.createdAt
               ? new Date(order.createdAt).toLocaleDateString('en-IN', {
-                  day: 'numeric',
-                  month: 'short',
-                  year: 'numeric',
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+              })
               : 'Recent Order';
 
             const itemsCount = (order.items || []).reduce(
@@ -318,8 +351,8 @@ export default function OrdersScreen({ onBack, onExploreShop, onSelectOrder }) {
                       {order.payment?.method === 'COD'
                         ? '💵 Cash on Delivery'
                         : order.payment?.method === 'UPI'
-                        ? '📱 UPI Paid'
-                        : '💳 Card Payment'}
+                          ? '📱 UPI Paid'
+                          : '💳 Card Payment'}
                     </Text>
                   </View>
                 </View>

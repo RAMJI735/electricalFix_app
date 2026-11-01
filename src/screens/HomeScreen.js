@@ -8,11 +8,14 @@ import {
   TouchableOpacity,
   TextInput,
   Image,
+  Platform,
   RefreshControl,
   ActivityIndicator,
 } from 'react-native';
+import { useQueryClient } from '@tanstack/react-query';
 import { colors, spacing } from '../constants/theme';
 import { ELECTRICAL_CATEGORIES, MOCK_PRODUCTS } from '../constants/mockData';
+import { useCategories, serviceKeys } from '../hooks';
 import CategoryService from '../../services/categoryService';
 import { useCart } from '../context/CartContext';
 import {
@@ -27,10 +30,10 @@ import { CategoryCircleSkeleton, ProductCardSkeleton } from '../components/Skele
 const PAGE_SIZE = 4;
 
 export default function HomeScreen({ onSelectCategory, onAddToCart, onNavigateToShop, onSelectService, onNavigateToCart }) {
+  const queryClient = useQueryClient();
   const { isInCart } = useCart();
   const [searchQuery, setSearchQuery] = useState('');
   const [categories, setCategories] = useState([]);
-  const [loadingCategories, setLoadingCategories] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   // Pagination states for products feed
@@ -56,23 +59,25 @@ export default function HomeScreen({ onSelectCategory, onAddToCart, onNavigateTo
     }
   };
 
-  const loadCategories = useCallback(async () => {
-    try {
-      const backendCategories = await CategoryService.getCategories();
-      if (backendCategories && backendCategories.length > 0) {
-        const formatted = backendCategories.map((c) => ({
-          id: c._id || c.id,
-          name: c.categoryName || c.name,
-          icon: c.icon || '⚡',
-        }));
-        setCategories([{ id: 'all', name: 'All Products', icon: '⚡' }, ...formatted]);
-      }
-    } catch (err) {
-      // Fallback to local default categories
-    } finally {
-      setLoadingCategories(false);
+  const {
+    data: categoryData,
+    isLoading: loadingCategories,
+    refetch: refetchCategories,
+  } = useCategories();
+
+  // Sync categories whenever TanStack Query updates data
+  useEffect(() => {
+    if (categoryData && categoryData.length > 0) {
+      const formatted = categoryData.map((c) => ({
+        id: c._id || c.id,
+        name: c.categoryName || c.name,
+        icon: c.icon || '⚡',
+      }));
+      setCategories([{ id: 'all', name: 'All Products', icon: '⚡' }, ...formatted]);
+    } else if (!loadingCategories) {
+      setCategories(ELECTRICAL_CATEGORIES);
     }
-  }, []);
+  }, [categoryData, loadingCategories]);
 
   const loadProductsPage = useCallback(
     async (pageToLoad = 1, isRefresh = false) => {
@@ -87,14 +92,30 @@ export default function HomeScreen({ onSelectCategory, onAddToCart, onNavigateTo
         let hasNext = false;
 
         try {
-          const res = await CategoryService.getServicesPaginated({
+          const queryKey = serviceKeys.paginated({
             categoryId: 'all',
             page: pageToLoad,
             limit: PAGE_SIZE,
-            search: searchQuery,
+            search: searchQuery.trim(),
           });
-          backendItems = res.items || [];
-          hasNext = res.hasNextPage;
+
+          if (isRefresh) {
+            await queryClient.invalidateQueries({ queryKey });
+          }
+
+          const res = await queryClient.fetchQuery({
+            queryKey,
+            queryFn: () =>
+              CategoryService.getServicesPaginated({
+                categoryId: 'all',
+                page: pageToLoad,
+                limit: PAGE_SIZE,
+                search: searchQuery.trim(),
+              }),
+            staleTime: 1000 * 60, // 1 minute: instant cache, background refresh if changed by admin
+          });
+          backendItems = res?.items || [];
+          hasNext = Boolean(res?.hasNextPage);
         } catch (err) {
           console.warn('Backend products fetch failed:', err.message);
         }
@@ -156,16 +177,12 @@ export default function HomeScreen({ onSelectCategory, onAddToCart, onNavigateTo
   );
 
   useEffect(() => {
-    loadCategories();
-  }, [loadCategories]);
-
-  useEffect(() => {
     loadProductsPage(1);
   }, [loadProductsPage]);
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([loadCategories(), loadProductsPage(1, true)]);
+    await Promise.all([refetchCategories(), loadProductsPage(1, true)]);
     setRefreshing(false);
   };
 
@@ -424,6 +441,11 @@ export default function HomeScreen({ onSelectCategory, onAddToCart, onNavigateTo
       ListEmptyComponent={renderEmpty}
       onEndReached={handleLoadMore}
       onEndReachedThreshold={0.4}
+      removeClippedSubviews={Platform.OS === 'android'}
+      maxToRenderPerBatch={6}
+      windowSize={5}
+      initialNumToRender={4}
+      updateCellsBatchingPeriod={50}
       refreshControl={
         <RefreshControl
           refreshing={refreshing}

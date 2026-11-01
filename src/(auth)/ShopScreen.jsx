@@ -78,11 +78,11 @@ export default function ShopScreen({ initialCategory = 'all', onAddToCart, onSel
       try {
         let items = [];
         if (!selectedCategory || selectedCategory === 'all') {
-          // If "all", fetch all services
-          items = await CategoryService.getServicesByCategoryId('all');
+          // If "all", fetch all products
+          items = await CategoryService.getServicesByCategoryId('all', { type: 'product' });
         } else {
           // Call service by Category ID
-          items = await CategoryService.getServicesByCategoryId(selectedCategory);
+          items = await CategoryService.getServicesByCategoryId(selectedCategory, { type: 'product' });
         }
 
         if (isMounted) {

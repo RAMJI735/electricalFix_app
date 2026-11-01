@@ -16,6 +16,11 @@ import {
 } from 'react-native';
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
+import {
+  useAddresses,
+  useCreateOrderMutation,
+  useCreateAddressMutation,
+} from '../hooks';
 import OrderService from '../../services/orderService';
 import AddressService from '../../services/addressService';
 import { getCurrentUserLocation } from '../utils/locationHelper';
@@ -75,37 +80,41 @@ export default function CartScreen({
   const [checkoutLocationMsg, setCheckoutLocationMsg] = useState('');
   const [formError, setFormError] = useState('');
 
+  // TanStack Query hooks
+  const { data: addressList = [], refetch: refetchAddresses } = useAddresses({
+    enabled: Boolean(user),
+  });
+  const createOrderMutation = useCreateOrderMutation();
+  const createAddressMutation = useCreateAddressMutation();
+
   // Saved addresses state
   const [savedAddresses, setSavedAddresses] = useState([]);
   const [selectedAddressId, setSelectedAddressId] = useState('new');
   const [saveAddressForFuture, setSaveAddressForFuture] = useState(true);
 
-  // Fetch saved addresses when checkout opens
+  // Sync saved addresses whenever query data updates or checkout is toggled
   useEffect(() => {
-    if (isCheckoutVisible) {
-      const fetchAddresses = async () => {
-        try {
-          const list = await AddressService.getAddresses();
-          if (Array.isArray(list) && list.length > 0) {
-            setSavedAddresses(list);
-            const def = list.find((a) => a.isDefault) || list[0];
-            setSelectedAddressId(def._id);
-            setFullName(def.fullName || '');
-            setPhone(def.phone || '');
-            setStreet(def.street || '');
-            setCity(def.city || 'Kolkata');
-            setPincode(def.postalCode || def.pincode || '700091');
-          } else {
-            setSavedAddresses([]);
-            setSelectedAddressId('new');
-          }
-        } catch (err) {
-          // Non-fatal
-        }
-      };
-      fetchAddresses();
+    if (isCheckoutVisible && Array.isArray(addressList) && addressList.length > 0) {
+      setSavedAddresses(addressList);
+      if (selectedAddressId === 'new') {
+        const def = addressList.find((a) => a.isDefault) || addressList[0];
+        setSelectedAddressId(def._id);
+        setFullName(def.fullName || '');
+        setPhone(def.phone || '');
+        setStreet(def.street || '');
+        setCity(def.city || 'Kolkata');
+        setPincode(def.postalCode || def.pincode || '700091');
+      }
+    } else if (isCheckoutVisible && Array.isArray(addressList) && addressList.length === 0) {
+      setSavedAddresses([]);
+      setSelectedAddressId('new');
     }
-  }, [isCheckoutVisible]);
+
+    // Revalidate cart inventory with server when checkout opens
+    if (isCheckoutVisible && isAuthenticated) {
+      fetchCart();
+    }
+  }, [isCheckoutVisible, addressList, isAuthenticated]);
 
   // Computations
   const subtotal =
@@ -277,7 +286,7 @@ export default function CartScreen({
         clearCartOnSuccess: true,
       };
 
-      const createdOrder = await OrderService.createOrder(orderPayload);
+      const createdOrder = await createOrderMutation.mutateAsync(orderPayload);
 
       // Immediately empty cart state across UI and backend
       try {
@@ -288,7 +297,7 @@ export default function CartScreen({
 
       // Save address in background if user opted in
       if (selectedAddressId === 'new' && saveAddressForFuture) {
-        AddressService.createAddress({
+        createAddressMutation.mutateAsync({
           fullName: fullName.trim(),
           phone: cleanPhone,
           street: street.trim(),
@@ -305,6 +314,9 @@ export default function CartScreen({
       setOrderSuccessData(createdOrder);
     } catch (err) {
       setFormError(err.message || 'Failed to place order. Please try again.');
+      try {
+        fetchCart();
+      } catch (e) {}
     } finally {
       setPlacingOrder(false);
     }
@@ -316,8 +328,7 @@ export default function CartScreen({
     try {
       await fetchCart();
       if (user) {
-        const list = await AddressService.getAddresses();
-        if (Array.isArray(list)) setSavedAddresses(list);
+        await refetchAddresses();
       }
     } catch (e) {
       // Non-fatal

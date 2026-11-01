@@ -1,24 +1,19 @@
 import axios from 'axios';
 import { Platform } from 'react-native';
 
+const FALLBACK_API_URL = 'https://ecom-backend-git-main-ramji735s-projects.vercel.app';
+
 const getApiBaseUrl = () => {
-  // If running on web in the browser, connect to port 8000 of the active host (localhost or LAN IP)
-  if (Platform.OS === 'web' || Platform.OS === 'android' && typeof window !== 'undefined' && window.location?.hostname) {
-    if (process.env.EXPO_PUBLIC_API_URL) {
-      return process.env.EXPO_PUBLIC_API_URL;
-    } else {
-
-      return `http://${window.location.hostname}:8000`;
-    }
+  if (process.env.EXPO_PUBLIC_API_URL) {
+    return process.env.EXPO_PUBLIC_API_URL;
   }
-
-
-  // Default to machine LAN IP for physical mobile devices / Expo Go
-  // return 'http://192.168.31.98:8000';
-  return process.env.EXPO_PUBLIC_API_URL;
+  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.hostname) {
+    return `http://${window.location.hostname}:8000`;
+  }
+  return FALLBACK_API_URL;
 };
 
-console.log("base", getApiBaseUrl());
+console.log('API Base URL:', getApiBaseUrl());
 export const api = axios.create({
   baseURL: getApiBaseUrl(),
   withCredentials: true,
@@ -35,6 +30,25 @@ export const setAuthToken = (token) => {
     delete api.defaults.headers.common['Authorization'];
   }
 };
+
+// Request interceptor to automatically attach authorization token if available
+api.interceptors.request.use(
+  async (config) => {
+    if (!config.headers['Authorization']) {
+      try {
+        let token = null;
+        if (typeof window !== 'undefined' && window.localStorage) {
+          token = window.localStorage.getItem('voltline_auth_token');
+        }
+        if (token) {
+          config.headers['Authorization'] = `Bearer ${token}`;
+        }
+      } catch (e) {}
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
 
 // Response interceptor to format errors
 api.interceptors.response.use(

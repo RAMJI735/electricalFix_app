@@ -14,6 +14,13 @@ import {
   KeyboardAvoidingView,
   Keyboard,
 } from 'react-native';
+import {
+  useAddresses,
+  useCreateAddressMutation,
+  useUpdateAddressMutation,
+  useDeleteAddressMutation,
+  useSetDefaultAddressMutation,
+} from '../hooks';
 import AddressService from '../../services/addressService';
 import { useAuth } from '../context/AuthContext';
 import { getCurrentUserLocation } from '../utils/locationHelper';
@@ -27,8 +34,14 @@ import {
 
 export default function AddressScreen({ onBack, onSelectAddress }) {
   const { user } = useAuth();
-  const [addresses, setAddresses] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { data: fetchedAddresses, isLoading: loading, refetch } = useAddresses();
+  const addresses = Array.isArray(fetchedAddresses) ? fetchedAddresses : [];
+
+  const createAddressMutation = useCreateAddressMutation();
+  const updateAddressMutation = useUpdateAddressMutation();
+  const deleteAddressMutation = useDeleteAddressMutation();
+  const setDefaultAddressMutation = useSetDefaultAddressMutation();
+
   const [refreshing, setRefreshing] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState(null);
 
@@ -53,26 +66,10 @@ export default function AddressScreen({ onBack, onSelectAddress }) {
   const [modalError, setModalError] = useState('');
   const [saving, setSaving] = useState(false);
 
-  // Fetch addresses
-  const loadAddresses = useCallback(async () => {
-    try {
-      const data = await AddressService.getAddresses();
-      setAddresses(Array.isArray(data) ? data : []);
-    } catch (err) {
-      console.warn('Failed to load addresses:', err.message);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    loadAddresses();
-  }, [loadAddresses]);
-
-  const onRefresh = () => {
+  const onRefresh = async () => {
     setRefreshing(true);
-    loadAddresses();
+    await refetch();
+    setRefreshing(false);
   };
 
   // Open Add Modal
@@ -235,13 +232,12 @@ export default function AddressScreen({ onBack, onSelectAddress }) {
       };
 
       if (editingAddressId) {
-        await AddressService.updateAddress(editingAddressId, payload);
+        await updateAddressMutation.mutateAsync({ id: editingAddressId, data: payload });
       } else {
-        await AddressService.createAddress(payload);
+        await createAddressMutation.mutateAsync(payload);
       }
 
       setModalVisible(false);
-      await loadAddresses();
     } catch (err) {
       setModalError(err.message || 'Failed to save address');
     } finally {
@@ -253,8 +249,7 @@ export default function AddressScreen({ onBack, onSelectAddress }) {
   const handleSetDefault = async (addrId) => {
     setActionLoadingId(addrId);
     try {
-      await AddressService.setDefaultAddress(addrId);
-      await loadAddresses();
+      await setDefaultAddressMutation.mutateAsync(addrId);
     } catch (err) {
       if (Platform.OS === 'web') {
         window.alert(err.message || 'Failed to set default address');
@@ -271,8 +266,7 @@ export default function AddressScreen({ onBack, onSelectAddress }) {
     const doDelete = async () => {
       setActionLoadingId(addr._id);
       try {
-        await AddressService.deleteAddress(addr._id);
-        await loadAddresses();
+        await deleteAddressMutation.mutateAsync(addr._id);
       } catch (err) {
         if (Platform.OS === 'web') {
           window.alert(err.message || 'Failed to delete address');

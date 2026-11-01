@@ -113,6 +113,7 @@ export default function TabsLayout({
                         setSelectedOrder(null);
                         setActiveTab('shop');
                     }}
+                    onNavigateToAuth={onNavigateToAuth}
                 />
             );
         }

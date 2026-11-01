@@ -9,48 +9,25 @@ import {
 } from 'react-native';
 import { CheckCircleIcon, BoltIcon } from '../components/Icons';
 import { useAuth } from '../../context/AuthContext';
+import { useOrders, useAddresses } from '../hooks';
 import OrderService from '../../services/orderService';
 import AddressService from '../../services/addressService';
 
 export default function ProfileScreen({ onNavigateToAuth, onNavigateToOrders, onNavigateToAddresses }) {
   const { user, isAuthenticated, logout } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
-  const [orderCount, setOrderCount] = useState(0);
-  const [totalSpent, setTotalSpent] = useState('0');
-  const [siteCount, setSiteCount] = useState(0);
 
-  const fetchStats = useCallback(async () => {
-    try {
-      const [orders, addresses] = await Promise.all([
-        OrderService.getOrders().catch(() => []),
-        AddressService.getAddresses().catch(() => []),
-      ]);
+  const { data: orders = [], refetch: refetchOrders } = useOrders({ enabled: isAuthenticated });
+  const { data: addresses = [], refetch: refetchAddresses } = useAddresses({ enabled: isAuthenticated });
 
-      if (Array.isArray(orders)) {
-        setOrderCount(orders.length);
-        const sum = orders.reduce((acc, o) => acc + (o.summary?.grandTotal || 0), 0);
-        if (sum >= 1000) {
-          setTotalSpent((sum / 1000).toFixed(1) + 'k');
-        } else {
-          setTotalSpent(sum.toString());
-        }
-      }
-
-      if (Array.isArray(addresses)) {
-        setSiteCount(addresses.length);
-      }
-    } catch (err) {
-      // Non-fatal
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchStats();
-  }, [fetchStats]);
+  const orderCount = Array.isArray(orders) ? orders.length : 0;
+  const siteCount = Array.isArray(addresses) ? addresses.length : 0;
+  const rawSum = Array.isArray(orders) ? orders.reduce((acc, o) => acc + (o.summary?.grandTotal || 0), 0) : 0;
+  const totalSpent = rawSum >= 1000 ? (rawSum / 1000).toFixed(1) + 'k' : rawSum.toString();
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await fetchStats();
+    await Promise.all([refetchOrders(), refetchAddresses()]);
     setRefreshing(false);
   };
 
