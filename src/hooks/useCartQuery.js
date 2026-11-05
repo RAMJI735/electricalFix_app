@@ -1,108 +1,102 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import CartService from '../../services/cartService';
 
-export const cartKeys = {
-  all: ['cart'],
-  current: () => [...cartKeys.all, 'current'],
-};
-
-/**
- * Fetch current user cart with TanStack Query
- */
+// Get user cart
 export function useCartQuery(options = {}) {
   return useQuery({
-    queryKey: cartKeys.current(),
+    queryKey: ['cart'],
     queryFn: () => CartService.getCart(),
-    staleTime: 1000 * 30, // 30s fresh: shows instant cache, validates stock in background
-    refetchOnMount: 'always', // Revalidates inventory whenever the user views Cart
+    staleTime: 60000,
     ...options,
   });
 }
 
-/**
- * Add item to cart mutation
- */
-export function useAddToCartMutation() {
+// Add item to cart
+export function useAddToCart() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: ({ item, quantity = 1, notes = '' }) =>
       CartService.addToCart(item, quantity, notes),
     onSuccess: (data) => {
-      queryClient.setQueryData(cartKeys.current(), data);
-      queryClient.invalidateQueries({ queryKey: cartKeys.all });
+      queryClient.setQueryData(['cart'], data);
+      queryClient.invalidateQueries({ queryKey: ['cart'] });
     },
   });
 }
 
-/**
- * Update cart item quantity mutation
- */
-export function useUpdateCartItemMutation() {
+// Update cart item quantity
+export function useUpdateCartItem() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: ({ itemId, quantity, notes = '' }) =>
       CartService.updateCartItem(itemId, quantity, notes),
     onSuccess: (data) => {
-      queryClient.setQueryData(cartKeys.current(), data);
-      queryClient.invalidateQueries({ queryKey: cartKeys.all });
+      queryClient.setQueryData(['cart'], data);
+      queryClient.invalidateQueries({ queryKey: ['cart'] });
     },
   });
 }
 
-/**
- * Remove cart item mutation
- */
-export function useRemoveCartItemMutation() {
+// Remove item from cart
+export function useRemoveCartItem() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: (itemId) => CartService.removeCartItem(itemId),
     onSuccess: (data) => {
-      queryClient.setQueryData(cartKeys.current(), data);
-      queryClient.invalidateQueries({ queryKey: cartKeys.all });
+      queryClient.setQueryData(['cart'], data);
+      queryClient.invalidateQueries({ queryKey: ['cart'] });
     },
   });
 }
 
-/**
- * Clear cart mutation
- */
-export function useClearCartMutation() {
+// Clear cart
+export function useClearCart() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: () => CartService.clearCart(),
     onSuccess: (data) => {
-      queryClient.setQueryData(cartKeys.current(), data);
-      queryClient.invalidateQueries({ queryKey: cartKeys.all });
+      queryClient.setQueryData(['cart'], data);
+      queryClient.invalidateQueries({ queryKey: ['cart'] });
     },
   });
 }
 
-/**
- * Apply coupon mutation
- */
-export function useApplyCouponMutation() {
+// Apply coupon
+export function useApplyCoupon() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: (couponCode) => CartService.applyCoupon(couponCode),
     onSuccess: (data) => {
-      queryClient.setQueryData(cartKeys.current(), data);
-      queryClient.invalidateQueries({ queryKey: cartKeys.all });
+      queryClient.setQueryData(['cart'], data);
+      queryClient.invalidateQueries({ queryKey: ['cart'] });
     },
   });
 }
 
-/**
- * Remove coupon mutation
- */
-export function useRemoveCouponMutation() {
+// Remove coupon
+export function useRemoveCoupon() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: () => CartService.removeCoupon(),
     onSuccess: (data) => {
-      queryClient.setQueryData(cartKeys.current(), data);
-      queryClient.invalidateQueries({ queryKey: cartKeys.all });
+      queryClient.setQueryData(['cart'], data);
+      queryClient.invalidateQueries({ queryKey: ['cart'] });
     },
   });
 }
+
+// Compatibility aliases
+export const useAddToCartMutation = useAddToCart;
+export const useUpdateCartItemMutation = useUpdateCartItem;
+export const useRemoveCartItemMutation = useRemoveCartItem;
+export const useClearCartMutation = useClearCart;
+export const useApplyCouponMutation = useApplyCoupon;
+export const useRemoveCouponMutation = useRemoveCoupon;
 
 export default useCartQuery;

@@ -1,12 +1,25 @@
 import { api } from '../utils/api';
+import AuthService from './authService';
+
+const getStoredUserId = () => {
+  try {
+    const session = AuthService.getStoredSession();
+    return session?.user?._id || session?.user?.id || null;
+  } catch (e) {
+    return null;
+  }
+};
 
 export const CartService = {
   /**
    * Fetch current cart for active user
    */
-  async getCart() {
+  async getCart(customUserId = null) {
     try {
-      const response = await api.get('/api/cart');
+      const uid = customUserId || getStoredUserId();
+      const response = await api.get('/api/cart', {
+        params: uid ? { userId: uid } : {},
+      });
       return response.data?.data || response.data || { items: [] };
     } catch (error) {
       console.error('Error fetching cart:', error.message);
@@ -17,9 +30,10 @@ export const CartService = {
   /**
    * Add service or product item to cart (requires authentication)
    */
-  async addToCart(item, quantity = 1, notes = '') {
+  async addToCart(item, quantity = 1, notes = '', customUserId = null) {
     try {
       const targetItemId = item._id || item.id || item.itemId || item.serviceId;
+      const uid = customUserId || getStoredUserId();
 
       const payload = {
         itemId: targetItemId,
@@ -31,6 +45,7 @@ export const CartService = {
         type: item.type || 'service',
         brand: item.brand || '',
         notes: notes || '',
+        ...(uid ? { userId: uid } : {}),
       };
 
       const response = await api.post('/api/cart', payload);
@@ -44,11 +59,13 @@ export const CartService = {
   /**
    * Update item quantity or notes in cart
    */
-  async updateCartItem(itemId, quantity, notes = '') {
+  async updateCartItem(itemId, quantity, notes = '', customUserId = null) {
     try {
+      const uid = customUserId || getStoredUserId();
       const response = await api.put(`/api/cart/items/${itemId}`, {
         quantity,
         notes,
+        ...(uid ? { userId: uid } : {}),
       });
       return response.data?.data || response.data;
     } catch (error) {
@@ -60,9 +77,12 @@ export const CartService = {
   /**
    * Remove item from cart
    */
-  async removeCartItem(itemId) {
+  async removeCartItem(itemId, customUserId = null) {
     try {
-      const response = await api.delete(`/api/cart/items/${itemId}`);
+      const uid = customUserId || getStoredUserId();
+      const response = await api.delete(`/api/cart/items/${itemId}`, {
+        params: uid ? { userId: uid } : {},
+      });
       return response.data?.data || response.data;
     } catch (error) {
       console.error(`Error removing cart item ${itemId}:`, error.message);
@@ -73,9 +93,12 @@ export const CartService = {
   /**
    * Clear all items in active cart
    */
-  async clearCart() {
+  async clearCart(customUserId = null) {
     try {
-      const response = await api.delete('/api/cart');
+      const uid = customUserId || getStoredUserId();
+      const response = await api.delete('/api/cart', {
+        params: uid ? { userId: uid } : {},
+      });
       return response.data?.data || response.data;
     } catch (error) {
       console.error('Error clearing cart:', error.message);
@@ -86,10 +109,12 @@ export const CartService = {
   /**
    * Apply promotional coupon code
    */
-  async applyCoupon(couponCode) {
+  async applyCoupon(couponCode, customUserId = null) {
     try {
+      const uid = customUserId || getStoredUserId();
       const response = await api.post('/api/cart/apply-coupon', {
         couponCode,
+        ...(uid ? { userId: uid } : {}),
       });
       return response.data?.data || response.data;
     } catch (error) {
@@ -99,11 +124,14 @@ export const CartService = {
   },
 
   /**
-   * Remove promotional coupon
+   * Remove applied coupon
    */
-  async removeCoupon() {
+  async removeCoupon(customUserId = null) {
     try {
-      const response = await api.post('/api/cart/remove-coupon');
+      const uid = customUserId || getStoredUserId();
+      const response = await api.post('/api/cart/remove-coupon', {
+        ...(uid ? { userId: uid } : {}),
+      });
       return response.data?.data || response.data;
     } catch (error) {
       console.error('Error removing coupon:', error.message);
@@ -112,14 +140,14 @@ export const CartService = {
   },
 
   /**
-   * Sync user cart upon login
+   * Merge guest cart into user cart upon login
    */
-  async mergeCart(userId = null) {
+  async mergeCart(guestItems) {
     try {
-      const response = await api.post('/api/cart/merge', { userId });
+      const response = await api.post('/api/cart/merge', { items: guestItems });
       return response.data?.data || response.data;
     } catch (error) {
-      console.warn('Cart sync info:', error.message);
+      console.warn('Guest cart merge failed:', error.message);
       return null;
     }
   },

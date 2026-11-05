@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState } from 'react';
 import {
   StyleSheet,
   Text,
@@ -6,11 +6,10 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
-  Platform,
   RefreshControl,
+  Image,
 } from 'react-native';
 import { useServiceDetails } from '../hooks';
-import ServiceService from '../../services/serviceService';
 import { Skeleton } from '../components/Skeleton';
 import {
   BoltIcon,
@@ -19,15 +18,22 @@ import {
   CartIcon,
 } from '../components/Icons';
 import { useCart } from '../context/CartContext';
+import { useAuth } from '../context/AuthContext';
 
 export default function ServiceDetailPage({
-  serviceId,
-  initialService = null,
-  onBack,
+  route,
+  navigation,
+  serviceId: propServiceId,
+  initialService: propInitialService = null,
+  onBack: propOnBack,
   onAddToCart,
   onNavigateToCart,
 }) {
-  const { isInCart } = useCart();
+  const serviceId = route?.params?.serviceId || route?.params?.id || propServiceId;
+  const initialService = route?.params?.initialService || route?.params?.service || propInitialService;
+  const onBack = propOnBack || (() => navigation?.goBack());
+  const { isInCart, addToCart } = useCart();
+  const { isAuthenticated } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
   const [added, setAdded] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -42,6 +48,7 @@ export default function ServiceDetailPage({
     initialData: initialService || undefined,
   });
 
+
   const service = fetchedService || initialService;
   const loading = queryLoading && !service;
   const error = queryError ? (queryError.message || 'Failed to load service details') : null;
@@ -53,16 +60,37 @@ export default function ServiceDetailPage({
   };
 
   const inCart = Boolean((service && isInCart(service)) || added);
+  const isInStock = Boolean(
+    service &&
+    service.inStock !== false &&
+    (service.stock === undefined || service.stock === null || Number(service.stock) > 0)
+  );
 
   const handleAdd = async () => {
     if (inCart) {
-      onNavigateToCart && onNavigateToCart();
+      if (onNavigateToCart) {
+        onNavigateToCart();
+      } else if (navigation?.navigate) {
+        navigation.navigate('MainTabs', { screen: 'Cart' });
+      }
       return;
     }
-    if (service && onAddToCart) {
+
+    if (!isInStock) {
+      return;
+    }
+
+    if (!isAuthenticated) {
+      if (navigation?.navigate) {
+        navigation.navigate('Login');
+      }
+      return;
+    }
+
+    if (service) {
       setAdding(true);
       try {
-        const res = await onAddToCart({
+        const itemPayload = {
           id: service._id || service.id,
           _id: service._id || service.id,
           name: service.serviceName || service.name,
@@ -70,15 +98,28 @@ export default function ServiceDetailPage({
           brand: service.brand || 'VOLTLINE',
           type: service.type || 'service',
           image: service.image || '',
+          category: typeof service.category === 'object' ? service.category?._id : (service.category || ''),
           spec: service.estimated_time
             ? `⏱ ${service.estimated_time} • Warranty: ${service.warranty || '90 Days'}`
             : (service.description || 'Electrical Material / Service'),
-        });
-        if (res !== false) {
+        };
+
+        if (onAddToCart) {
+          const res = await onAddToCart(itemPayload);
+          if (res !== false) {
+            setAdded(true);
+          }
+        } else {
+          await addToCart(itemPayload, 1);
           setAdded(true);
         }
       } catch (err) {
         console.warn('Failed to add to cart:', err);
+        if (err?.code === 'AUTH_REQUIRED' || err?.message?.toLowerCase().includes('log in')) {
+          if (navigation?.navigate) {
+            navigation.navigate('Login');
+          }
+        }
       } finally {
         setAdding(false);
       }
@@ -93,6 +134,16 @@ export default function ServiceDetailPage({
     typeof service?.category === 'object'
       ? service?.category?.icon || '⚡'
       : '⚡';
+
+  const currentPrice = Number(service?.price) || 0;
+  const origPrice =
+    Number(service?.originalPrice) && Number(service?.originalPrice) > currentPrice
+      ? Number(service?.originalPrice)
+      : Number(service?.effectiveOriginalPrice) || Math.round(currentPrice * 1.25);
+  const discountPercent =
+    origPrice > currentPrice
+      ? Math.round(((origPrice - currentPrice) / origPrice) * 100)
+      : 0;
 
   return (
     <View style={styles.container}>
@@ -145,15 +196,7 @@ export default function ServiceDetailPage({
           <Text style={styles.errorSubtitle}>{error}</Text>
           <TouchableOpacity
             style={styles.retryButton}
-            onPress={() => {
-              if (serviceId) {
-                setLoading(true);
-                ServiceService.getServiceById(serviceId)
-                  .then(setService)
-                  .catch((e) => setError(e.message))
-                  .finally(() => setLoading(false));
-              }
-            }}
+            onPress={() => refetch()}
           >
             <Text style={styles.retryButtonText}>Retry</Text>
           </TouchableOpacity>
@@ -172,6 +215,22 @@ export default function ServiceDetailPage({
             />
           }
         >
+          {/* Hero Product/Service Image */}
+          {service?.image ? (
+            <View style={styles.heroImageContainer}>
+              <Image
+                source={{ uri: service.image }}
+                style={styles.heroImage}
+                resizeMode="contain"
+              />
+              {discountPercent > 0 && (
+                <View style={styles.imageDiscountBadge}>
+                  <Text style={styles.imageDiscountText}>{discountPercent}% OFF</Text>
+                </View>
+              )}
+            </View>
+          ) : null}
+
           {/* Category & Status Pill */}
           <View style={styles.badgeRow}>
             <View style={styles.categoryBadge}>
@@ -182,7 +241,7 @@ export default function ServiceDetailPage({
             <View style={styles.typeBadge}>
               <BoltIcon size={12} color="#1d4ed8" />
               <Text style={styles.typeBadgeText}>
-                {service?.type === 'product' ? 'PRODUCT' : 'SERVICE'}
+                {service?.badge || (service?.type === 'product' ? 'PRODUCT' : 'SERVICE')}
               </Text>
             </View>
 
@@ -216,23 +275,29 @@ export default function ServiceDetailPage({
           {/* Price Box */}
           <View style={styles.priceCard}>
             <View>
-              <Text style={styles.priceLabel}>Service Cost</Text>
+              <Text style={styles.priceLabel}>
+                {service?.type === 'product' ? 'Product Price' : 'Service Cost'}
+              </Text>
               <View style={styles.priceRow}>
-                <Text style={styles.priceValue}>₹{service?.price}</Text>
-                <Text style={styles.priceStrikethrough}>
-                  ₹{Math.round((service?.price || 499) * 1.25)}
-                </Text>
-                <View style={styles.discountPill}>
-                  <Text style={styles.discountText}>20% OFF</Text>
-                </View>
+                <Text style={styles.priceValue}>₹{currentPrice}</Text>
+                {origPrice > currentPrice && (
+                  <Text style={styles.priceStrikethrough}>₹{origPrice}</Text>
+                )}
+                {discountPercent > 0 && (
+                  <View style={styles.discountPill}>
+                    <Text style={styles.discountText}>{discountPercent}% OFF</Text>
+                  </View>
+                )}
               </View>
-              <Text style={styles.taxSubtext}>Includes 18% GST & Technician Charges</Text>
+              <Text style={styles.taxSubtext}>Includes 18% GST • Verified ISI Quality</Text>
             </View>
 
             <View style={styles.ratingBox}>
               <StarIcon size={16} color="#f59e0b" />
-              <Text style={styles.ratingNumber}>4.9</Text>
-              <Text style={styles.ratingReviews}>48+ reviews</Text>
+              <Text style={styles.ratingNumber}>{service?.rating || 4.8}</Text>
+              <Text style={styles.ratingReviews}>
+                {service?.reviewsCount || service?.reviews || 48}+ reviews
+              </Text>
             </View>
           </View>
 
@@ -263,41 +328,56 @@ export default function ServiceDetailPage({
 
           {/* Service Description Section */}
           <View style={styles.sectionCard}>
-            <Text style={styles.sectionHeader}>Service Overview</Text>
+            <Text style={styles.sectionHeader}>
+              {service?.type === 'product' ? 'Product Overview' : 'Service Overview'}
+            </Text>
             <Text style={styles.descriptionText}>
               {service?.description ||
                 `Complete ${service?.serviceName || 'electrical service'} provided by licensed electricians. Includes diagnostic testing, high-voltage safety clearance, genuine parts replacement, and official ISI certification documentation.`}
             </Text>
           </View>
 
-          {/* What's Included Checklist */}
+          {/* What's Included / Key Features Checklist */}
           <View style={styles.sectionCard}>
-            <Text style={styles.sectionHeader}>What's Included</Text>
+            <Text style={styles.sectionHeader}>
+              {service?.type === 'product' ? 'Key Features & Standards' : "What's Included"}
+            </Text>
             <View style={styles.checklist}>
-              <View style={styles.checkItem}>
-                <CheckCircleIcon size={18} color="#10b981" />
-                <Text style={styles.checkItemText}>
-                  On-site comprehensive inspection & safety testing
-                </Text>
-              </View>
-              <View style={styles.checkItem}>
-                <CheckCircleIcon size={18} color="#10b981" />
-                <Text style={styles.checkItemText}>
-                  Certified electrical technician equipped with digital testers
-                </Text>
-              </View>
-              <View style={styles.checkItem}>
-                <CheckCircleIcon size={18} color="#10b981" />
-                <Text style={styles.checkItemText}>
-                  100% genuine replacement components with manufacturer warranty
-                </Text>
-              </View>
-              <View style={styles.checkItem}>
-                <CheckCircleIcon size={18} color="#10b981" />
-                <Text style={styles.checkItemText}>
-                  Clean up of installation debris & post-repair load testing
-                </Text>
-              </View>
+              {Array.isArray(service?.features) && service.features.length > 0 ? (
+                service.features.map((feat, idx) => (
+                  <View key={idx} style={styles.checkItem}>
+                    <CheckCircleIcon size={18} color="#10b981" />
+                    <Text style={styles.checkItemText}>{feat}</Text>
+                  </View>
+                ))
+              ) : (
+                <>
+                  <View style={styles.checkItem}>
+                    <CheckCircleIcon size={18} color="#10b981" />
+                    <Text style={styles.checkItemText}>
+                      On-site comprehensive inspection & safety testing
+                    </Text>
+                  </View>
+                  <View style={styles.checkItem}>
+                    <CheckCircleIcon size={18} color="#10b981" />
+                    <Text style={styles.checkItemText}>
+                      Certified electrical technician equipped with digital testers
+                    </Text>
+                  </View>
+                  <View style={styles.checkItem}>
+                    <CheckCircleIcon size={18} color="#10b981" />
+                    <Text style={styles.checkItemText}>
+                      100% genuine replacement components with manufacturer warranty
+                    </Text>
+                  </View>
+                  <View style={styles.checkItem}>
+                    <CheckCircleIcon size={18} color="#10b981" />
+                    <Text style={styles.checkItemText}>
+                      Clean up of installation debris & post-repair load testing
+                    </Text>
+                  </View>
+                </>
+              )}
             </View>
           </View>
 
@@ -325,9 +405,14 @@ export default function ServiceDetailPage({
           </View>
 
           <TouchableOpacity
-            style={[styles.addCartBtn, inCart && styles.addCartBtnSuccess, adding && styles.addCartBtnLoading]}
+            style={[
+              styles.addCartBtn,
+              inCart && styles.addCartBtnSuccess,
+              !isInStock && !inCart && styles.addCartBtnDisabled,
+              adding && styles.addCartBtnLoading,
+            ]}
             activeOpacity={0.85}
-            disabled={adding}
+            disabled={adding || (!inCart && !isInStock)}
             onPress={handleAdd}
           >
             {adding ? (
@@ -340,11 +425,15 @@ export default function ServiceDetailPage({
                 <CartIcon size={16} color="#ffffff" focused />
                 <Text style={styles.addCartBtnText}>GO TO CART</Text>
               </>
-            ) : (
+            ) : isInStock ? (
               <>
                 <BoltIcon size={16} color="#ffffff" />
-                <Text style={styles.addCartBtnText}>BOOK / ADD TO CART</Text>
+                <Text style={styles.addCartBtnText}>
+                  {service?.type === 'service' ? 'BOOK SERVICE' : 'ADD TO CART'}
+                </Text>
               </>
+            ) : (
+              <Text style={styles.addCartBtnText}>OUT OF STOCK</Text>
             )}
           </TouchableOpacity>
         </View>
@@ -411,6 +500,37 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 16,
     paddingTop: 16,
+  },
+  heroImageContainer: {
+    width: '100%',
+    height: 220,
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    overflow: 'hidden',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    position: 'relative',
+  },
+  heroImage: {
+    width: '90%',
+    height: '90%',
+  },
+  imageDiscountBadge: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    backgroundColor: '#16a34a',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+  },
+  imageDiscountText: {
+    color: '#ffffff',
+    fontSize: 10,
+    fontWeight: '800',
   },
   badgeRow: {
     flexDirection: 'row',
@@ -734,6 +854,9 @@ const styles = StyleSheet.create({
   },
   addCartBtnSuccess: {
     backgroundColor: '#16a34a',
+  },
+  addCartBtnDisabled: {
+    backgroundColor: '#94a3b8',
   },
   addCartBtnLoading: {
     opacity: 0.85,

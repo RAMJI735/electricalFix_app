@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   StyleSheet,
   Text,
@@ -13,18 +13,23 @@ import {
   RefreshControl,
   KeyboardAvoidingView,
   Keyboard,
+  BackHandler,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
 import {
   useAddresses,
   useCreateOrderMutation,
   useCreateAddressMutation,
+  useSettings,
+  useCoupons,
 } from '../hooks';
 import OrderService from '../../services/orderService';
 import AddressService from '../../services/addressService';
 import { getCurrentUserLocation } from '../utils/locationHelper';
 import {
+  ArrowLeftIcon,
   BoltIcon,
   TrashIcon,
   CheckCircleIcon,
@@ -34,10 +39,46 @@ import {
 } from '../components/Icons';
 
 export default function CartScreen({
-  onExploreShop,
-  onNavigateToOrders,
-  onNavigateToAuth,
+  navigation,
+  onBack: propOnBack,
+  onExploreShop: propOnExploreShop,
+  onNavigateToOrders: propOnNavigateToOrders,
+  onNavigateToAuth: propOnNavigateToAuth,
 }) {
+  const onBack = useCallback(() => {
+    if (propOnBack) {
+      propOnBack();
+    } else if (navigation?.jumpTo) {
+      navigation.jumpTo('Home');
+    } else if (navigation?.navigate) {
+      navigation.navigate('Home');
+    }
+  }, [propOnBack, navigation]);
+
+  useFocusEffect(
+    useCallback(() => {
+      const onBackPress = () => {
+        onBack();
+        return true;
+      };
+
+      const subscription = BackHandler.addEventListener(
+        'hardwareBackPress',
+        onBackPress
+      );
+
+      return () => subscription.remove();
+    }, [onBack])
+  );
+  const onExploreShop = propOnExploreShop || ((catId) => navigation?.navigate('Shop', { categoryId: catId }));
+  const onNavigateToOrders = propOnNavigateToOrders || ((order) => {
+    if (order?._id) {
+      navigation?.navigate('OrderDetail', { orderId: order._id, order });
+    } else {
+      navigation?.navigate('Orders');
+    }
+  });
+  const onNavigateToAuth = propOnNavigateToAuth || ((screen) => navigation?.navigate(screen === 'signup' ? 'SignUp' : 'Login'));
   const {
     cart,
     cartItems,
@@ -116,17 +157,24 @@ export default function CartScreen({
     }
   }, [isCheckoutVisible, addressList, isAuthenticated]);
 
+  // Dynamic Store Commerce Settings & Promo Coupons
+  const { commerce, refetch: refetchSettings } = useSettings();
+  const { data: availableCoupons = [] } = useCoupons();
+
+  const freeDeliveryThreshold = commerce?.freeDeliveryThreshold ?? 2000;
+  const standardDeliveryFee = commerce?.standardDeliveryFee ?? 150;
+  const taxRatePercent = commerce?.taxRate ?? 18;
+
   // Computations
   const subtotal =
     cart?.totalPrice ||
     cartItems.reduce((acc, item) => acc + item.price * (item.quantity || 1), 0);
   const discount = cart?.discount || (cart?.couponCode ? Math.round(subtotal * 0.1) : 0);
   const taxableAmount = Math.max(0, subtotal - discount);
-  const gst = cart?.tax || Math.round(taxableAmount * 0.18);
-  const delivery = subtotal > 2000 || subtotal === 0 ? 0 : 150;
+  const gst = cart?.tax !== undefined ? cart.tax : Math.round(taxableAmount * (taxRatePercent / 100));
+  const delivery = subtotal >= freeDeliveryThreshold || subtotal === 0 ? 0 : standardDeliveryFee;
   const grandTotal = cart?.grandTotal || taxableAmount + gst + delivery;
 
-  const freeDeliveryThreshold = 2000;
   const freeDeliveryProgress = Math.min(1, subtotal / freeDeliveryThreshold);
   const amountNeededForFreeDelivery = Math.max(0, freeDeliveryThreshold - subtotal);
 
@@ -413,9 +461,18 @@ export default function CartScreen({
     <View style={styles.container}>
       {/* Top Header */}
       <View style={styles.header}>
-        <View>
-          <Text style={styles.eyebrow}>ORDER & SITE MATERIALS</Text>
-          <Text style={styles.title}>Cart & Supplies</Text>
+        <View style={styles.headerLeft}>
+          <TouchableOpacity
+            style={styles.backBtn}
+            activeOpacity={0.7}
+            onPress={onBack}
+          >
+            <ArrowLeftIcon size={18} color="#0f172a" />
+          </TouchableOpacity>
+          <View>
+            <Text style={styles.eyebrow}>ORDER & SITE MATERIALS</Text>
+            <Text style={styles.title}>Cart & Supplies</Text>
+          </View>
         </View>
         <View style={styles.headerRight}>
           <View style={styles.countBadge}>
@@ -614,16 +671,49 @@ export default function CartScreen({
               {!!couponError && (
                 <Text style={styles.couponErrorText}>{couponError}</Text>
               )}
-              {/* Quick Suggestion Badge */}
-              <TouchableOpacity
-                style={styles.suggestedBadge}
-                activeOpacity={0.7}
-                onPress={() => handleApplyCoupon('VOLT10')}
-              >
-                <Text style={styles.suggestedBadgeText}>
-                  ⚡ Tap to apply <Text style={{ fontWeight: '800' }}>VOLT10</Text> for 10% instant discount
-                </Text>
-              </TouchableOpacity>
+              {/* Dynamic Available Offers */}
+              {availableCoupons.length > 0 ? (
+                <View style={styles.availableOffersSection}>
+                  <Text style={styles.availableOffersTitle}>ACTIVE PROMO CODES</Text>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.couponChipsScroll}
+                  >
+                    {availableCoupons.map((cpn) => (
+                      <TouchableOpacity
+                        key={cpn._id || cpn.code}
+                        style={styles.couponChip}
+                        activeOpacity={0.75}
+                        onPress={() => handleApplyCoupon(cpn.code)}
+                      >
+                        <View style={styles.couponChipTop}>
+                          <Text style={styles.couponChipCode}>{cpn.code}</Text>
+                          <Text style={styles.couponChipApply}>APPLY →</Text>
+                        </View>
+                        <Text style={styles.couponChipDesc} numberOfLines={2}>
+                          {cpn.description}
+                        </Text>
+                        {cpn.minOrderValue > 0 && (
+                          <Text style={styles.couponChipMin}>
+                            Orders above ₹{cpn.minOrderValue}
+                          </Text>
+                        )}
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  style={styles.suggestedBadge}
+                  activeOpacity={0.7}
+                  onPress={() => handleApplyCoupon('VOLT10')}
+                >
+                  <Text style={styles.suggestedBadgeText}>
+                    ⚡ Tap to apply <Text style={{ fontWeight: '800' }}>VOLT10</Text> for 10% instant discount
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
           )}
         </View>
@@ -1209,6 +1299,22 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 8,
   },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  backBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: '#ffffff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    marginRight: 10,
+  },
   eyebrow: {
     fontSize: 10,
     fontWeight: '700',
@@ -1519,6 +1625,56 @@ const styles = StyleSheet.create({
   suggestedBadgeText: {
     fontSize: 10,
     color: '#1e40af',
+  },
+  availableOffersSection: {
+    marginTop: 10,
+  },
+  availableOffersTitle: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#64748b',
+    letterSpacing: 0.5,
+    marginBottom: 6,
+  },
+  couponChipsScroll: {
+    gap: 8,
+    paddingBottom: 4,
+  },
+  couponChip: {
+    width: 170,
+    backgroundColor: '#f8fafc',
+    borderRadius: 8,
+    padding: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  couponChipTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 3,
+  },
+  couponChipCode: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#2563eb',
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+  },
+  couponChipApply: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#16a34a',
+  },
+  couponChipDesc: {
+    fontSize: 9,
+    color: '#475569',
+    lineHeight: 12,
+  },
+  couponChipMin: {
+    fontSize: 8,
+    color: '#94a3b8',
+    marginTop: 3,
+    fontWeight: '600',
   },
   summaryCard: {
     backgroundColor: '#ffffff',

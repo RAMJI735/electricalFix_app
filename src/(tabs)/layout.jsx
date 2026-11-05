@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+
+import React, { useEffect, useState } from 'react';
 import {
     StyleSheet,
     View,
@@ -7,18 +8,21 @@ import {
     StatusBar,
     Platform,
     Modal,
+    BackHandler,
 } from 'react-native';
+
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+
 import HomeScreen from '../screens/HomeScreen';
 import ShopScreen from '../screens/ShopScreen';
 import CartScreen from '../screens/CartScreen';
 import ProfileScreen from '../screens/ProfileScreen';
-import OrdersScreen from '../screens/OrdersScreen';
-import AddressScreen from '../screens/AddressScreen';
-import ServiceDetailPage from '../screens/serviceDetailPage';
-import OrderDetailPage from '../screens/OrderDetailPage';
+
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
+
 import {
     HomeIcon,
     ShopIcon,
@@ -26,356 +30,301 @@ import {
     ProfileIcon,
 } from '../components/Icons';
 
-export default function TabsLayout({
-    initialTab = 'home',
-    onNavigateToAuth,
-}) {
-    const [activeTab, setActiveTab] = useState(initialTab);
-    const [selectedShopCategory, setSelectedShopCategory] = useState('all');
-    const [selectedService, setSelectedService] = useState(null);
-    const [selectedOrder, setSelectedOrder] = useState(null);
-    const [showingOrders, setShowingOrders] = useState(false);
-    const [showingAddresses, setShowingAddresses] = useState(false);
+const Tab = createBottomTabNavigator();
 
-    // Access backend-connected Cart and Auth Context
-    const { totalCartCount, addToCart } = useCart();
-    const { isAuthenticated } = useAuth();
+const TABS = [
+    { name: 'Home', label: 'Home', Icon: HomeIcon },
+    { name: 'Shop', label: 'Shop', Icon: ShopIcon },
+    { name: 'Cart', label: 'Cart', Icon: CartIcon },
+    { name: 'Profile', label: 'Account', Icon: ProfileIcon },
+];
+
+export default function TabsLayout() {
+    const navigation = useNavigation();
+
     const [authModalVisible, setAuthModalVisible] = useState(false);
 
+    const { totalCartCount, addToCart } = useCart();
+    const { isAuthenticated } = useAuth();
+
+    useEffect(() => {
+        const backAction = () => {
+            // Check current active tab
+            const currentRoute = navigation.getState()?.routes?.[
+                navigation.getState()?.index
+            ];
+
+            // If current tab is Home, exit app
+            if (currentRoute?.name === 'Home') {
+                BackHandler.exitApp();
+                return true;
+            }
+
+            // For other tabs, let React Navigation
+            // handle back history automatically
+            return false;
+        };
+
+        const backHandler = BackHandler.addEventListener(
+            'hardwareBackPress',
+            backAction
+        );
+
+        return () => backHandler.remove();
+    }, [navigation]);
+
+    // Add to Cart
     const handleAddToCart = async (product) => {
         if (!isAuthenticated) {
             setAuthModalVisible(true);
             return false;
         }
+
         try {
             return await addToCart(product, 1);
-        } catch (err) {
-            if (err?.code === 'AUTH_REQUIRED' || err?.message?.toLowerCase().includes('log in')) {
+        } catch (error) {
+            if (
+                error?.code === 'AUTH_REQUIRED' ||
+                error?.message?.toLowerCase().includes('log in')
+            ) {
                 setAuthModalVisible(true);
                 return false;
             }
-            console.error('Failed to add to cart:', err);
-            throw err;
+
+            throw error;
         }
     };
 
-    const navigateToCart = () => {
-        setSelectedService(null);
-        setSelectedOrder(null);
-        setShowingOrders(false);
-        setShowingAddresses(false);
-        setActiveTab('cart');
-    };
+    // Custom Tab Bar
+    const renderTabBar = ({ state, navigation: tabNav }) => (
+        <View style={styles.tabBar}>
+            {TABS.map(({ name, label, Icon }) => {
+                const focused = state.routes[state.index].name === name;
 
-    const navigateToShopWithCategory = (catId = 'all') => {
-        setShowingOrders(false);
-        setShowingAddresses(false);
-        setSelectedService(null);
-        setSelectedOrder(null);
-        setSelectedShopCategory(catId);
-        setActiveTab('shop');
-    };
-
-    // Render current active screen
-    const renderScreen = () => {
-        if (selectedOrder) {
-            return (
-                <OrderDetailPage
-                    orderId={selectedOrder._id}
-                    initialOrder={selectedOrder}
-                    onBack={() => setSelectedOrder(null)}
-                    onReorderSuccess={() => {
-                        setSelectedOrder(null);
-                        setShowingOrders(false);
-                        setActiveTab('cart');
-                    }}
-                />
-            );
-        }
-
-        if (showingAddresses) {
-            return (
-                <AddressScreen
-                    onBack={() => setShowingAddresses(false)}
-                />
-            );
-        }
-
-        if (showingOrders) {
-            return (
-                <OrdersScreen
-                    onBack={() => setShowingOrders(false)}
-                    onSelectOrder={(order) => setSelectedOrder(order)}
-                    onExploreShop={() => {
-                        setShowingOrders(false);
-                        setShowingAddresses(false);
-                        setSelectedService(null);
-                        setSelectedOrder(null);
-                        setActiveTab('shop');
-                    }}
-                    onNavigateToAuth={onNavigateToAuth}
-                />
-            );
-        }
-
-        if (selectedService) {
-            return (
-                <ServiceDetailPage
-                    serviceId={selectedService.id || selectedService._id}
-                    initialService={selectedService}
-                    onBack={() => setSelectedService(null)}
-                    onAddToCart={handleAddToCart}
-                    onNavigateToCart={navigateToCart}
-                />
-            );
-        }
-
-        switch (activeTab) {
-            case 'home':
                 return (
-                    <HomeScreen
-                        onSelectCategory={(catId) => setSelectedShopCategory(catId)}
-                        onNavigateToShop={navigateToShopWithCategory}
-                        onAddToCart={handleAddToCart}
-                        onSelectService={(service) => setSelectedService(service)}
-                        onNavigateToCart={navigateToCart}
-                    />
-                );
-            case 'shop':
-                return (
-                    <ShopScreen
-                        initialCategory={selectedShopCategory}
-                        onAddToCart={handleAddToCart}
-                        onSelectService={(service) => setSelectedService(service)}
-                        onNavigateToCart={navigateToCart}
-                    />
-                );
-            case 'cart':
-                return (
-                    <CartScreen
-                        onExploreShop={() => {
-                            setSelectedService(null);
-                            setSelectedOrder(null);
-                            setActiveTab('shop');
-                        }}
-                        onNavigateToOrders={(order) => {
-                            if (order && (order._id || order.orderNumber)) {
-                                setSelectedOrder(order);
-                            } else {
-                                setShowingOrders(true);
+                    <TouchableOpacity
+                        key={name}
+                        style={styles.tabButton}
+                        activeOpacity={0.7}
+                        onPress={() => {
+                            const route = state.routes.find(
+                                (item) => item.name === name
+                            );
+
+                            const event = tabNav.emit({
+                                type: 'tabPress',
+                                target: route.key,
+                                canPreventDefault: true,
+                            });
+
+                            if (!focused && !event.defaultPrevented) {
+                                tabNav.navigate(name);
                             }
                         }}
-                        onNavigateToAuth={onNavigateToAuth}
-                    />
+                    >
+                        <View style={styles.iconWithBadge}>
+                            <Icon size={22} color="#64748b" focused={focused} />
+
+                            {name === 'Cart' && totalCartCount > 0 && (
+                                <View style={styles.badge}>
+                                    <Text style={styles.badgeText}>
+                                        {totalCartCount > 9 ? '9+' : totalCartCount}
+                                    </Text>
+                                </View>
+                            )}
+                        </View>
+
+                        <Text style={[
+                            styles.tabLabel,
+                            focused && styles.tabLabelActive,
+                        ]}>
+                            {label}
+                        </Text>
+
+                        {focused && <View style={styles.activeDot} />}
+                    </TouchableOpacity>
                 );
-            case 'profile':
-                return (
-                    <ProfileScreen
-                        onNavigateToAuth={onNavigateToAuth}
-                        onNavigateToOrders={() => {
-                            setSelectedOrder(null);
-                            setShowingOrders(true);
-                        }}
-                        onNavigateToAddresses={() => {
-                            setSelectedOrder(null);
-                            setShowingAddresses(true);
-                        }}
-                    />
-                );
-            default:
-                return (
-                    <HomeScreen
-                        onNavigateToShop={navigateToShopWithCategory}
-                        onAddToCart={handleAddToCart}
-                        onSelectService={(service) => setSelectedService(service)}
-                    />
-                );
-        }
-    };
+            })}
+        </View>
+    );
 
     return (
         <SafeAreaView style={styles.container}>
             <StatusBar barStyle="dark-content" backgroundColor="#f8fafc" />
 
-            {/* Screen Body */}
-            <View style={styles.screenContainer}>{renderScreen()}</View>
-
-            {/* Bottom Tab Bar */}
-            <View style={styles.tabBar}>
-                {/* Tab 1: Home */}
-                <TouchableOpacity
-                    style={styles.tabButton}
-                    activeOpacity={0.7}
-                    onPress={() => {
-                        setShowingOrders(false);
-                        setShowingAddresses(false);
-                        setSelectedService(null);
-                        setSelectedOrder(null);
-                        setActiveTab('home');
-                    }}
-                >
-                    <HomeIcon
-                        size={22}
-                        color="#64748b"
-                        focused={!showingOrders && !showingAddresses && !selectedService && !selectedOrder && activeTab === 'home'}
-                    />
-                    <Text
-                        style={[
-                            styles.tabLabel,
-                            !showingOrders && !showingAddresses && !selectedService && !selectedOrder && activeTab === 'home' && styles.tabLabelActive,
-                        ]}
-                    >
-                        Home
-                    </Text>
-                    {!showingOrders && !showingAddresses && !selectedService && !selectedOrder && activeTab === 'home' && <View style={styles.activeDot} />}
-                </TouchableOpacity>
-
-                {/* Tab 2: Shop / Categories */}
-                <TouchableOpacity
-                    style={styles.tabButton}
-                    activeOpacity={0.7}
-                    onPress={() => {
-                        setShowingOrders(false);
-                        setShowingAddresses(false);
-                        setSelectedService(null);
-                        setSelectedOrder(null);
-                        setActiveTab('shop');
-                    }}
-                >
-                    <ShopIcon
-                        size={22}
-                        color="#64748b"
-                        focused={!showingOrders && !showingAddresses && !selectedService && !selectedOrder && activeTab === 'shop'}
-                    />
-                    <Text
-                        style={[
-                            styles.tabLabel,
-                            !showingOrders && !showingAddresses && !selectedService && !selectedOrder && activeTab === 'shop' && styles.tabLabelActive,
-                        ]}
-                    >
-                        Shop
-                    </Text>
-                    {!showingOrders && !showingAddresses && !selectedService && !selectedOrder && activeTab === 'shop' && <View style={styles.activeDot} />}
-                </TouchableOpacity>
-
-                {/* Tab 3: Cart */}
-                <TouchableOpacity
-                    style={styles.tabButton}
-                    activeOpacity={0.7}
-                    onPress={() => {
-                        setShowingOrders(false);
-                        setShowingAddresses(false);
-                        setSelectedService(null);
-                        setSelectedOrder(null);
-                        setActiveTab('cart');
-                    }}
-                >
-                    <View style={styles.iconWithBadge}>
-                        <CartIcon
-                            size={22}
-                            color="#64748b"
-                            focused={!showingOrders && !showingAddresses && !selectedService && !selectedOrder && activeTab === 'cart'}
+            <Tab.Navigator
+                screenOptions={{ headerShown: false }}
+                tabBar={renderTabBar}
+                backBehavior="history"
+            >
+                {/* Home */}
+                <Tab.Screen name="Home">
+                    {({ navigation: tabNav }) => (
+                        <HomeScreen
+                            onSelectCategory={(id) =>
+                                tabNav.navigate('Shop', { categoryId: id })
+                            }
+                            onNavigateToShop={(id = 'all') =>
+                                tabNav.navigate('Shop', { categoryId: id })
+                            }
+                            onSelectService={(service) =>
+                                navigation.navigate('ServiceDetail', {
+                                    serviceId: service.id || service._id,
+                                })
+                            }
+                            onNavigateToCart={() => tabNav.navigate('Cart')}
+                            onAddToCart={handleAddToCart}
                         />
-                        {totalCartCount > 0 && (
-                            <View style={styles.badge}>
-                                <Text style={styles.badgeText}>
-                                    {totalCartCount > 9 ? '9+' : totalCartCount}
-                                </Text>
-                            </View>
-                        )}
-                    </View>
-                    <Text
-                        style={[
-                            styles.tabLabel,
-                            !showingOrders && !showingAddresses && !selectedService && !selectedOrder && activeTab === 'cart' && styles.tabLabelActive,
-                        ]}
-                    >
-                        Cart
-                    </Text>
-                    {!showingOrders && !showingAddresses && !selectedService && !selectedOrder && activeTab === 'cart' && <View style={styles.activeDot} />}
-                </TouchableOpacity>
+                    )}
+                </Tab.Screen>
 
-                {/* Tab 4: Profile / Account */}
-                <TouchableOpacity
-                    style={styles.tabButton}
-                    activeOpacity={0.7}
-                    onPress={() => {
-                        setShowingOrders(false);
-                        setShowingAddresses(false);
-                        setSelectedService(null);
-                        setSelectedOrder(null);
-                        setActiveTab('profile');
-                    }}
-                >
-                    <ProfileIcon
-                        size={22}
-                        color="#64748b"
-                        focused={!showingOrders && !showingAddresses && !selectedService && !selectedOrder && activeTab === 'profile'}
-                    />
-                    <Text
-                        style={[
-                            styles.tabLabel,
-                            !showingOrders && !showingAddresses && !selectedService && !selectedOrder && activeTab === 'profile' && styles.tabLabelActive,
-                        ]}
-                    >
-                        Account
-                    </Text>
-                    {!showingOrders && !showingAddresses && !selectedService && !selectedOrder && activeTab === 'profile' && <View style={styles.activeDot} />}
-                </TouchableOpacity>
-            </View>
+                {/* Shop */}
+                <Tab.Screen name="Shop">
+                    {({ route, navigation: tabNav }) => (
+                        <ShopScreen
+                            navigation={tabNav}
+                            route={route}
+                            initialCategory={route.params?.categoryId || 'all'}
+                            onBack={() => {
+                                if (tabNav?.jumpTo) {
+                                    tabNav.jumpTo('Home');
+                                } else if (tabNav?.navigate) {
+                                    tabNav.navigate('Home');
+                                } else {
+                                    navigation.navigate('Home');
+                                }
+                            }}
+                            onSelectService={(service) =>
+                                navigation.navigate('ServiceDetail', {
+                                    serviceId: service.id || service._id,
+                                })
+                            }
+                            onNavigateToCart={() => tabNav.navigate('Cart')}
+                            onAddToCart={handleAddToCart}
+                        />
+                    )}
+                </Tab.Screen>
 
-            {/* Login Prompt Modal for Adding to Cart */}
+                {/* Cart */}
+                <Tab.Screen name="Cart">
+                    {({ route, navigation: tabNav }) => (
+                        <CartScreen
+                            navigation={tabNav}
+                            route={route}
+                            onBack={() => {
+                                if (tabNav?.jumpTo) {
+                                    tabNav.jumpTo('Home');
+                                } else if (tabNav?.navigate) {
+                                    tabNav.navigate('Home');
+                                } else {
+                                    navigation.navigate('Home');
+                                }
+                            }}
+                            onExploreShop={() =>
+                                tabNav.navigate('Shop', { categoryId: 'all' })
+                            }
+                            onNavigateToOrders={(order) =>
+                                navigation.navigate(
+                                    order ? 'OrderDetail' : 'Orders',
+                                    order
+                                        ? { orderId: order._id || order.orderNumber }
+                                        : undefined
+                                )
+                            }
+                            onNavigateToAuth={(screen) =>
+                                navigation.navigate(
+                                    screen === 'signup' ? 'SignUp' : 'Login'
+                                )
+                            }
+                        />
+                    )}
+                </Tab.Screen>
+
+                {/* Profile */}
+                <Tab.Screen name="Profile">
+                    {({ route, navigation: tabNav }) => (
+                        <ProfileScreen
+                            navigation={tabNav}
+                            route={route}
+                            onBack={() => {
+                                if (tabNav?.jumpTo) {
+                                    tabNav.jumpTo('Home');
+                                } else if (tabNav?.navigate) {
+                                    tabNav.navigate('Home');
+                                } else {
+                                    navigation.navigate('Home');
+                                }
+                            }}
+                            onNavigateToOrders={() =>
+                                navigation.navigate('Orders')
+                            }
+                            onNavigateToAddresses={() =>
+                                navigation.navigate('Addresses')
+                            }
+                            onNavigateToAuth={(screen) =>
+                                navigation.navigate(
+                                    screen === 'signup' ? 'SignUp' : 'Login'
+                                )
+                            }
+                        />
+                    )}
+                </Tab.Screen>
+            </Tab.Navigator>
+
+            {/* Login Required Modal */}
             <Modal
                 visible={authModalVisible}
-                transparent={true}
+                transparent
                 animationType="fade"
                 onRequestClose={() => setAuthModalVisible(false)}
             >
                 <View style={styles.modalOverlay}>
                     <View style={styles.authModalCard}>
-                        {/* Lock Icon Badge */}
                         <View style={styles.modalBadge}>
                             <Text style={styles.modalBadgeIcon}>🔒</Text>
                         </View>
 
-                        <Text style={styles.modalTitle}>Login Required</Text>
-                        <Text style={styles.modalSubtitle}>
-                            You can explore all electrical products and services freely. Please log in or create an account to add items to your cart and place orders.
+                        <Text style={styles.modalTitle}>
+                            Login Required
                         </Text>
 
-                        {/* Action Buttons */}
+                        <Text style={styles.modalSubtitle}>
+                            You can explore all electrical products and services
+                            freely. Please log in or create an account to add
+                            items to your cart and place orders.
+                        </Text>
+
                         <TouchableOpacity
                             style={styles.modalLoginButton}
-                            activeOpacity={0.85}
                             onPress={() => {
                                 setAuthModalVisible(false);
-                                if (onNavigateToAuth) {
-                                    onNavigateToAuth('login');
-                                }
+                                navigation.navigate('Login');
                             }}
                         >
-                            <Text style={styles.modalLoginButtonText}>LOG IN TO CONSOLE  →</Text>
+                            <Text style={styles.modalLoginButtonText}>
+                                LOG IN TO CONSOLE →
+                            </Text>
                         </TouchableOpacity>
 
                         <TouchableOpacity
                             style={styles.modalSignupButton}
-                            activeOpacity={0.8}
                             onPress={() => {
                                 setAuthModalVisible(false);
-                                if (onNavigateToAuth) {
-                                    onNavigateToAuth('signup');
-                                }
+                                navigation.navigate('SignUp');
                             }}
                         >
-                            <Text style={styles.modalSignupButtonText}>Create New Account</Text>
+                            <Text style={styles.modalSignupButtonText}>
+                                Create New Account
+                            </Text>
                         </TouchableOpacity>
 
                         <TouchableOpacity
                             style={styles.modalDismissButton}
-                            activeOpacity={0.7}
                             onPress={() => setAuthModalVisible(false)}
                         >
-                            <Text style={styles.modalDismissButtonText}>Continue Browsing (View Only)</Text>
+                            <Text style={styles.modalDismissButtonText}>
+                                Continue Browsing (View Only)
+                            </Text>
                         </TouchableOpacity>
                     </View>
                 </View>
@@ -389,24 +338,17 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: '#f8fafc',
     },
-    screenContainer: {
-        flex: 1,
-    },
     tabBar: {
         flexDirection: 'row',
         height: Platform.OS === 'ios' ? 76 : 64,
-        backgroundColor: '#ffffff',
+        backgroundColor: '#fff',
         borderTopWidth: 1,
         borderTopColor: '#e2e8f0',
         alignItems: 'center',
         justifyContent: 'space-around',
         paddingHorizontal: 8,
-        paddingBottom: Platform.OS === 'ios' ? 18 : 6,
         paddingTop: 6,
-        shadowColor: '#0f172a',
-        shadowOffset: { width: 0, height: -3 },
-        shadowOpacity: 0.05,
-        shadowRadius: 8,
+        paddingBottom: Platform.OS === 'ios' ? 18 : 6,
         elevation: 8,
     },
     tabButton: {
@@ -414,7 +356,6 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
         paddingVertical: 4,
-        position: 'relative',
     },
     tabLabel: {
         fontSize: 11,
@@ -448,10 +389,10 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         paddingHorizontal: 3,
         borderWidth: 1.5,
-        borderColor: '#ffffff',
+        borderColor: '#fff',
     },
     badgeText: {
-        color: '#ffffff',
+        color: '#fff',
         fontSize: 9,
         fontWeight: '800',
     },
@@ -465,19 +406,11 @@ const styles = StyleSheet.create({
     authModalCard: {
         width: '100%',
         maxWidth: 380,
-        backgroundColor: '#ffffff',
+        backgroundColor: '#fff',
         borderRadius: 20,
-        paddingHorizontal: 24,
-        paddingTop: 28,
-        paddingBottom: 22,
+        padding: 24,
         alignItems: 'center',
-        shadowColor: '#0f172a',
-        shadowOffset: { width: 0, height: 12 },
-        shadowOpacity: 0.25,
-        shadowRadius: 24,
         elevation: 12,
-        borderWidth: 1,
-        borderColor: '#e2e8f0',
     },
     modalBadge: {
         width: 56,
@@ -487,8 +420,6 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
         marginBottom: 16,
-        borderWidth: 1,
-        borderColor: '#bfdbfe',
     },
     modalBadgeIcon: {
         fontSize: 24,
@@ -497,7 +428,6 @@ const styles = StyleSheet.create({
         fontSize: 19,
         fontWeight: '800',
         color: '#0f172a',
-        textAlign: 'center',
         marginBottom: 8,
     },
     modalSubtitle: {
@@ -506,7 +436,6 @@ const styles = StyleSheet.create({
         textAlign: 'center',
         lineHeight: 19,
         marginBottom: 22,
-        paddingHorizontal: 8,
     },
     modalLoginButton: {
         width: '100%',
@@ -516,17 +445,11 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
         marginBottom: 10,
-        shadowColor: '#2563eb',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.25,
-        shadowRadius: 8,
-        elevation: 4,
     },
     modalLoginButtonText: {
-        color: '#ffffff',
+        color: '#fff',
         fontSize: 13,
         fontWeight: '700',
-        letterSpacing: 0.5,
     },
     modalSignupButton: {
         width: '100%',
@@ -545,8 +468,7 @@ const styles = StyleSheet.create({
         fontWeight: '600',
     },
     modalDismissButton: {
-        paddingVertical: 8,
-        paddingHorizontal: 16,
+        padding: 8,
     },
     modalDismissButtonText: {
         color: '#94a3b8',

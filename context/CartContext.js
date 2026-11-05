@@ -26,7 +26,7 @@ export function CartProvider({ children }) {
   const fetchCart = useCallback(async () => {
     try {
       setError(null);
-      const data = await CartService.getCart();
+      const data = await CartService.getCart(user?._id || user?.id);
       if (data) {
         setCart(data);
       }
@@ -36,7 +36,7 @@ export function CartProvider({ children }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user]);
 
   // Fetch cart on mount and when authentication status changes
   useEffect(() => {
@@ -70,7 +70,12 @@ export function CartProvider({ children }) {
     setUpdating(true);
     setError(null);
     try {
-      const updatedCart = await CartService.addToCart(product, quantity, notes);
+      const updatedCart = await CartService.addToCart(
+        product,
+        quantity,
+        notes,
+        user?._id || user?.id
+      );
       if (updatedCart) {
         setCart(updatedCart);
       } else {
@@ -128,7 +133,12 @@ export function CartProvider({ children }) {
     });
 
     try {
-      const updatedCart = await CartService.updateCartItem(targetId, newQty);
+      const updatedCart = await CartService.updateCartItem(
+        targetId,
+        newQty,
+        '',
+        user?._id || user?.id
+      );
       if (updatedCart) {
         setCart(updatedCart);
       }
@@ -177,7 +187,10 @@ export function CartProvider({ children }) {
     });
 
     try {
-      const updatedCart = await CartService.removeCartItem(targetId);
+      const updatedCart = await CartService.removeCartItem(
+        targetId,
+        user?._id || user?.id
+      );
       if (updatedCart) {
         setCart(updatedCart);
       }
@@ -208,7 +221,7 @@ export function CartProvider({ children }) {
     });
 
     try {
-      await CartService.clearCart();
+      await CartService.clearCart(user?._id || user?.id);
     } catch (err) {
       console.error('Clear cart failed:', err.message);
       setError(err.message);
@@ -225,7 +238,10 @@ export function CartProvider({ children }) {
     setUpdating(true);
     setError(null);
     try {
-      const updatedCart = await CartService.applyCoupon(code);
+      const updatedCart = await CartService.applyCoupon(
+        code,
+        user?._id || user?.id
+      );
       if (updatedCart) {
         setCart(updatedCart);
       }
@@ -245,7 +261,9 @@ export function CartProvider({ children }) {
     setUpdating(true);
     setError(null);
     try {
-      const updatedCart = await CartService.removeCoupon();
+      const updatedCart = await CartService.removeCoupon(
+        user?._id || user?.id
+      );
       if (updatedCart) {
         setCart(updatedCart);
       }

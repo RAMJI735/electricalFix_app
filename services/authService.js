@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { api, setAuthToken } from '../utils/api';
+import { api, setAuthToken, getActiveToken } from '../utils/api';
 
 const TOKEN_KEY = 'voltline_auth_token';
 const USER_KEY = 'voltline_auth_user';
@@ -7,18 +7,29 @@ const USER_KEY = 'voltline_auth_user';
 // In-memory cache for synchronous reads
 const memoryStore = new Map();
 
-// Multi-tier storage helper (Memory + AsyncStorage + Web localStorage)
+// Multi-tier storage helper (Memory + SessionStorage + LocalStorage + AsyncStorage)
 const storage = {
   getItem: (key) => {
     if (memoryStore.has(key)) {
       return memoryStore.get(key);
     }
     try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        const val = window.localStorage.getItem(key);
-        if (val) {
-          memoryStore.set(key, val);
-          return val;
+      if (typeof window !== 'undefined') {
+        // 1. Session Storage
+        if (window.sessionStorage) {
+          const sVal = window.sessionStorage.getItem(key);
+          if (sVal) {
+            memoryStore.set(key, sVal);
+            return sVal;
+          }
+        }
+        // 2. Local Storage
+        if (window.localStorage) {
+          const lVal = window.localStorage.getItem(key);
+          if (lVal) {
+            memoryStore.set(key, lVal);
+            return lVal;
+          }
         }
       }
     } catch (e) {
@@ -29,8 +40,13 @@ const storage = {
   setItem: (key, value) => {
     memoryStore.set(key, value);
     try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        window.localStorage.setItem(key, value);
+      if (typeof window !== 'undefined') {
+        if (window.sessionStorage) {
+          window.sessionStorage.setItem(key, value);
+        }
+        if (window.localStorage) {
+          window.localStorage.setItem(key, value);
+        }
       }
     } catch (e) {}
     try {
@@ -40,8 +56,13 @@ const storage = {
   removeItem: (key) => {
     memoryStore.delete(key);
     try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        window.localStorage.removeItem(key);
+      if (typeof window !== 'undefined') {
+        if (window.sessionStorage) {
+          window.sessionStorage.removeItem(key);
+        }
+        if (window.localStorage) {
+          window.localStorage.removeItem(key);
+        }
       }
     } catch (e) {}
     try {
@@ -66,9 +87,11 @@ export const AuthService = {
     if (token) {
       setAuthToken(token);
       storage.setItem(TOKEN_KEY, token);
+      storage.setItem('token', token);
     }
     if (user) {
       storage.setItem(USER_KEY, JSON.stringify(user));
+      storage.setItem('user', JSON.stringify(user));
     }
 
     return { user, token, message };
@@ -99,25 +122,49 @@ export const AuthService = {
     } finally {
       setAuthToken(null);
       storage.removeItem(TOKEN_KEY);
+      storage.removeItem('token');
       storage.removeItem(USER_KEY);
+      storage.removeItem('user');
     }
     return { success: true };
   },
 
   /**
-   * Restore stored session on app load (async for Android APK AsyncStorage)
+   * Update user profile (name, phone, companyName, gstin, avatar)
+   */
+  async updateProfile(profileData) {
+    const response = await api.put('/api/auth/profile', profileData);
+    const updatedUser = response.data?.data || response.data;
+    if (updatedUser) {
+      storage.setItem(USER_KEY, JSON.stringify(updatedUser));
+      storage.setItem('user', JSON.stringify(updatedUser));
+    }
+    return updatedUser;
+  },
+
+  /**
+   * Fetch latest user profile from server
+   */
+  async getProfile() {
+    const response = await api.get('/api/auth/profile');
+    const user = response.data?.data || response.data;
+    if (user) {
+      storage.setItem(USER_KEY, JSON.stringify(user));
+      storage.setItem('user', JSON.stringify(user));
+    }
+    return user;
+  },
+
+  /**
+   * Restore stored session on app load
    */
   async restoreSessionAsync() {
     try {
-      let storedToken = memoryStore.get(TOKEN_KEY);
-      let storedUser = memoryStore.get(USER_KEY);
+      let storedToken = await getActiveToken();
+      let storedUser = storage.getItem(USER_KEY) || storage.getItem('user');
 
-      if (!storedToken || !storedUser) {
-        const [tokenPair, userPair] = await AsyncStorage.multiGet([TOKEN_KEY, USER_KEY]).catch(() => [null, null]);
-        if (tokenPair && tokenPair[1]) {
-          storedToken = tokenPair[1];
-          memoryStore.set(TOKEN_KEY, storedToken);
-        }
+      if (!storedUser) {
+        const [, userPair] = await AsyncStorage.multiGet([TOKEN_KEY, USER_KEY]).catch(() => [null, null]);
         if (userPair && userPair[1]) {
           storedUser = userPair[1];
           memoryStore.set(USER_KEY, storedUser);
@@ -142,8 +189,8 @@ export const AuthService = {
    */
   getStoredSession() {
     try {
-      const storedToken = storage.getItem(TOKEN_KEY);
-      const storedUser = storage.getItem(USER_KEY);
+      const storedToken = storage.getItem(TOKEN_KEY) || storage.getItem('token');
+      const storedUser = storage.getItem(USER_KEY) || storage.getItem('user');
 
       if (storedToken) {
         setAuthToken(storedToken);

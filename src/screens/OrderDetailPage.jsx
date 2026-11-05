@@ -12,7 +12,7 @@ import {
   Share,
   RefreshControl,
 } from 'react-native';
-import { useOrderDetails, useCancelOrderMutation } from '../hooks';
+import { useOrderDetails, useCancelOrderMutation, useSettings } from '../hooks';
 import OrderService from '../../services/orderService';
 import { useCart } from '../context/CartContext';
 import {
@@ -25,11 +25,17 @@ import {
 } from '../components/Icons';
 
 export default function OrderDetailPage({
-  orderId,
-  initialOrder = null,
-  onBack,
-  onReorderSuccess,
+  route,
+  navigation,
+  orderId: propOrderId,
+  initialOrder: propInitialOrder = null,
+  onBack: propOnBack,
+  onReorderSuccess: propOnReorderSuccess,
 }) {
+  const orderId = route?.params?.orderId || route?.params?.id || propOrderId;
+  const initialOrder = route?.params?.initialOrder || route?.params?.order || propInitialOrder;
+  const onBack = propOnBack || (() => navigation?.goBack());
+  const onReorderSuccess = propOnReorderSuccess || (() => navigation?.navigate('Cart'));
   const targetId = orderId || initialOrder?._id;
   const {
     data: fetchedOrder,
@@ -51,6 +57,12 @@ export default function OrderDetailPage({
   const [cancelReason, setCancelReason] = useState('Change of requirements');
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
   const [reordering, setReordering] = useState(false);
+
+  const { data: settings } = useSettings();
+  const storeName = settings?.store?.name || 'Voltline Electricals';
+  const storeGstin = settings?.store?.gstin || '19AAACV2026E1Z5';
+  const taxRate = settings?.commerce?.taxRate ?? 18;
+  const halfTax = Math.round((taxRate / 2) * 10) / 10;
 
   const { addToCart } = useCart();
 
@@ -117,7 +129,7 @@ export default function OrderDetailPage({
   // Share order summary / reference
   const handleShareOrder = async () => {
     if (!order) return;
-    const message = `Voltline Electrical Order #${order.orderNumber}\nTotal: ₹${order.summary?.grandTotal || 0}\nStatus: ${order.orderStatus}\nDelivery to: ${order.shippingAddress?.street}, ${order.shippingAddress?.city}`;
+    const message = `${storeName} Order #${order.orderNumber}\nTotal: ₹${order.summary?.grandTotal || 0}\nStatus: ${order.orderStatus}\nDelivery to: ${order.shippingAddress?.street}, ${order.shippingAddress?.city}`;
     if (Platform.OS === 'web') {
       if (navigator.clipboard) {
         navigator.clipboard.writeText(message);
@@ -188,8 +200,8 @@ export default function OrderDetailPage({
   const subtotal = order?.summary?.subtotal || 0;
   const discount = order?.summary?.discount || 0;
   const taxable = Math.max(0, subtotal - discount);
-  const cgst = Math.round((taxable * 0.09) * 100) / 100;
-  const sgst = Math.round((taxable * 0.09) * 100) / 100;
+  const cgst = Math.round((taxable * (halfTax / 100)) * 100) / 100;
+  const sgst = Math.round((taxable * (halfTax / 100)) * 100) / 100;
   const gstTotal = order?.summary?.tax || cgst + sgst;
   const shippingFee = order?.summary?.shippingFee || 0;
   const grandTotal = order?.summary?.grandTotal || 0;
@@ -476,12 +488,12 @@ export default function OrderDetailPage({
             )}
 
             <View style={styles.billRow}>
-              <Text style={styles.billLabel}>CGST (9%)</Text>
+              <Text style={styles.billLabel}>CGST ({halfTax}%)</Text>
               <Text style={styles.billVal}>₹{cgst}</Text>
             </View>
 
             <View style={styles.billRow}>
-              <Text style={styles.billLabel}>SGST (9%)</Text>
+              <Text style={styles.billLabel}>SGST ({halfTax}%)</Text>
               <Text style={styles.billVal}>₹{sgst}</Text>
             </View>
 
@@ -633,8 +645,8 @@ export default function OrderDetailPage({
           <View style={styles.invoiceSheet}>
             <View style={styles.invoiceHeader}>
               <View>
-                <Text style={styles.invoiceBrand}>VOLTLINE ELECTRICALS LTD</Text>
-                <Text style={styles.invoiceGstin}>GSTIN: 19AAACV2026E1Z5</Text>
+                <Text style={styles.invoiceBrand}>{storeName.toUpperCase()}</Text>
+                <Text style={styles.invoiceGstin}>GSTIN: {storeGstin}</Text>
               </View>
               <TouchableOpacity onPress={() => setShowInvoiceModal(false)} style={{ padding: 6 }}>
                 <CloseIcon size={20} color="#64748b" />
@@ -649,7 +661,7 @@ export default function OrderDetailPage({
                 </View>
                 <View style={{ alignItems: 'flex-end' }}>
                   <Text style={styles.invoiceMetaLabel}>DATE</Text>
-                  <Text style={styles.invoiceMetaVal}>{new Date(order?.createdAt || Date.now()).toLocaleDateString('en-IN')}</Text>
+                  <Text style={styles.invoiceMetaVal}>{order?.createdAt ? new Date(order.createdAt).toLocaleDateString('en-IN') : formattedDate}</Text>
                 </View>
               </View>
 
@@ -696,11 +708,11 @@ export default function OrderDetailPage({
                   <Text style={styles.invoiceTotalVal}>₹{taxable}</Text>
                 </View>
                 <View style={styles.invoiceTotalRow}>
-                  <Text style={styles.invoiceTotalLabel}>CGST (9%):</Text>
+                  <Text style={styles.invoiceTotalLabel}>CGST ({halfTax}%):</Text>
                   <Text style={styles.invoiceTotalVal}>₹{cgst}</Text>
                 </View>
                 <View style={styles.invoiceTotalRow}>
-                  <Text style={styles.invoiceTotalLabel}>SGST (9%):</Text>
+                  <Text style={styles.invoiceTotalLabel}>SGST ({halfTax}%):</Text>
                   <Text style={styles.invoiceTotalVal}>₹{sgst}</Text>
                 </View>
                 <View style={styles.invoiceTotalRow}>

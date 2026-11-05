@@ -2,113 +2,77 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import ServiceService from '../../services/serviceService';
 import CategoryService from '../../services/categoryService';
 
-export const serviceKeys = {
-  all: ['services'],
-  lists: () => [...serviceKeys.all, 'list'],
-  list: (params) => [...serviceKeys.lists(), params],
-  paginated: (params) => [...serviceKeys.all, 'paginated', params],
-  byCategory: (categoryId, params) => [...serviceKeys.all, 'category', categoryId, params],
-  details: () => [...serviceKeys.all, 'detail'],
-  detail: (id) => [...serviceKeys.details(), id],
-};
-
-/**
- * Fetch services/products with TanStack Query
- */
-export function useServices(params = {}, options = {}) {
+// Get all services
+export function useServices(params = {}) {
   return useQuery({
-    queryKey: serviceKeys.list(params),
+    queryKey: ['services', params],
     queryFn: () => ServiceService.getServices(params),
-    staleTime: 1000 * 60, // 1 minute: instant cache, background refresh if changed by admin
-    ...options,
+    staleTime: 60000,
   });
 }
 
-/**
- * Fetch services/products by category ID with TanStack Query
- */
-export function useServicesByCategory(categoryId, params = {}, options = {}) {
+// Get services by category
+export function useServicesByCategory(categoryId, params = {}) {
   return useQuery({
-    queryKey: serviceKeys.byCategory(categoryId, params),
+    queryKey: ['services', 'category', categoryId, params],
     queryFn: () => CategoryService.getServicesByCategoryId(categoryId, params),
-    staleTime: 1000 * 60, // 1 minute: instant cache, background refresh if changed by admin
-    ...options,
+    enabled: !!categoryId,
+    staleTime: 60000,
   });
 }
 
-/**
- * Fetch paginated services/products with TanStack Query caching
- */
-export function usePaginatedServices(params = {}, options = {}) {
-  const { categoryId = 'all', page = 1, limit = 6, search = '', sortBy, type, ...rest } = params;
+// Get paginated services
+export function usePaginatedServices(params = {}) {
   return useQuery({
-    queryKey: serviceKeys.paginated({ categoryId, page, limit, search, sortBy, type, ...rest }),
-    queryFn: () =>
-      CategoryService.getServicesPaginated({
-        categoryId,
-        page,
-        limit,
-        search,
-        sortBy,
-        type,
-        ...rest,
-      }),
-    staleTime: 1000 * 60, // 1 minute: instant cache, background refresh if changed by admin
-    ...options,
+    queryKey: ['services', 'paginated', params],
+    queryFn: () => CategoryService.getServicesPaginated(params),
+    staleTime: 60000,
   });
 }
 
-/**
- * Fetch single service/product details with TanStack Query
- */
-export function useServiceDetails(serviceId, options = {}) {
+// Get single service details
+export function useServiceDetails(id) {
   return useQuery({
-    queryKey: serviceKeys.detail(serviceId),
-    queryFn: () => ServiceService.getServiceById(serviceId),
-    enabled: Boolean(serviceId),
-    staleTime: 1000 * 60, // 1 minute: instant cache, background refresh if changed by admin
-    ...options,
+    queryKey: ['service', id],
+    queryFn: () => ServiceService.getServiceById(id),
+    enabled: !!id,
+    staleTime: 60000,
   });
 }
 
-/**
- * Mutation to create a service or product
- */
+// Create service
 export function useCreateService() {
   const queryClient = useQueryClient();
+
   return useMutation({
-    mutationFn: (serviceData) => ServiceService.createService(serviceData),
+    mutationFn: ServiceService.createService,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: serviceKeys.all });
+      queryClient.invalidateQueries({ queryKey: ['services'] });
     },
   });
 }
 
-/**
- * Mutation to update a service or product
- */
+// Update service
 export function useUpdateService() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: ({ id, data }) => ServiceService.updateService(id, data),
-    onSuccess: (result, variables) => {
-      queryClient.invalidateQueries({ queryKey: serviceKeys.detail(variables.id) });
-      queryClient.invalidateQueries({ queryKey: serviceKeys.lists() });
+    onSuccess: (_, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ['services'] });
+      queryClient.invalidateQueries({ queryKey: ['service', id] });
     },
   });
 }
 
-/**
- * Mutation to delete a service or product
- */
+// Delete service
 export function useDeleteService() {
   const queryClient = useQueryClient();
+
   return useMutation({
-    mutationFn: (id) => ServiceService.deleteService(id),
+    mutationFn: ServiceService.deleteService,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: serviceKeys.all });
+      queryClient.invalidateQueries({ queryKey: ['services'] });
     },
   });
 }
-
-export default useServices;

@@ -1,8 +1,8 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { StyleSheet, View, Animated, Platform } from 'react-native';
 
 export function Skeleton({ width = '100%', height = 20, borderRadius = 8, style }) {
-  const opacity = useRef(new Animated.Value(0.3)).current;
+  const [opacity] = useState(() => new Animated.Value(0.3));
 
   useEffect(() => {
     const pulse = Animated.loop(

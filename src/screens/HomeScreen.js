@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   StyleSheet,
   Text,
@@ -11,11 +11,13 @@ import {
   Platform,
   RefreshControl,
   ActivityIndicator,
+  ImageBackground,
+  useWindowDimensions,
 } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
-import { colors, spacing } from '../constants/theme';
-import { ELECTRICAL_CATEGORIES, MOCK_PRODUCTS } from '../constants/mockData';
-import { useCategories, serviceKeys } from '../hooks';
+import { colors } from '../constants/theme';
+import { ELECTRICAL_CATEGORIES } from '../constants/mockData';
+import { useCategories, useSettings } from '../hooks';
 import CategoryService from '../../services/categoryService';
 import { useCart } from '../context/CartContext';
 import {
@@ -27,14 +29,30 @@ import {
 } from '../components/Icons';
 import { CategoryCircleSkeleton, ProductCardSkeleton } from '../components/Skeleton';
 
-const PAGE_SIZE = 4;
+const PAGE_SIZE = 6;
 
-export default function HomeScreen({ onSelectCategory, onAddToCart, onNavigateToShop, onSelectService, onNavigateToCart }) {
+export default function HomeScreen({
+  onSelectCategory,
+  onAddToCart,
+  onNavigateToShop,
+  onSelectService,
+  onNavigateToCart,
+}) {
   const queryClient = useQueryClient();
   const { isInCart } = useCart();
   const [searchQuery, setSearchQuery] = useState('');
   const [categories, setCategories] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Dynamic Store & App Settings
+  const {
+    banners,
+    announcement,
+    assurances,
+    storeName,
+    tagline,
+    refetch: refetchSettings,
+  } = useSettings();
 
   // Pagination states for products feed
   const [products, setProducts] = useState([]);
@@ -92,12 +110,16 @@ export default function HomeScreen({ onSelectCategory, onAddToCart, onNavigateTo
         let hasNext = false;
 
         try {
-          const queryKey = serviceKeys.paginated({
-            categoryId: 'all',
-            page: pageToLoad,
-            limit: PAGE_SIZE,
-            search: searchQuery.trim(),
-          });
+          const queryKey = [
+            'services',
+            'paginated',
+            {
+              categoryId: 'all',
+              page: pageToLoad,
+              limit: PAGE_SIZE,
+              search: searchQuery.trim(),
+            },
+          ];
 
           if (isRefresh) {
             await queryClient.invalidateQueries({ queryKey });
@@ -112,7 +134,7 @@ export default function HomeScreen({ onSelectCategory, onAddToCart, onNavigateTo
                 limit: PAGE_SIZE,
                 search: searchQuery.trim(),
               }),
-            staleTime: 1000 * 60, // 1 minute: instant cache, background refresh if changed by admin
+            staleTime: 1000 * 60, // 1 minute: instant cache, background refresh
           });
           backendItems = res?.items || [];
           hasNext = Boolean(res?.hasNextPage);
@@ -120,52 +142,64 @@ export default function HomeScreen({ onSelectCategory, onAddToCart, onNavigateTo
           console.warn('Backend products fetch failed:', err.message);
         }
 
-        const formattedBackend = backendItems.map((item) => ({
-          id: item._id || item.id,
-          name: item.serviceName || item.productName || item.name,
-          brand: item.brand || 'VOLTLINE',
-          model: item.model || '',
-          spec: item.estimated_time
-            ? `⏱ ${item.estimated_time} • Warranty: ${item.warranty || '90 Days'}`
-            : (item.description || item.spec || 'Certified Electrical Equipment'),
-          price: item.price || 499,
-          originalPrice: Math.round((item.price || 499) * 1.25),
-          rating: 4.8,
-          reviews: 58,
-          badge: item.type === 'service' ? 'SERVICE' : 'VERIFIED',
-          category: item.category?._id || item.category || 'general',
-          isBackend: true,
-        }));
+        const formattedBackend = backendItems.map((item) => {
+          const price = Number(item.price) || 0;
+          const origPrice =
+            Number(item.originalPrice) && Number(item.originalPrice) > price
+              ? Number(item.originalPrice)
+              : Number(item.effectiveOriginalPrice) || Math.round(price * 1.25);
+          const discount =
+            origPrice > price
+              ? Math.round(((origPrice - price) / origPrice) * 100)
+              : 0;
 
-        // const matchingMocks = MOCK_PRODUCTS.filter((m) => {
-        //   if (!searchQuery) return true;
-        //   return (
-        //     m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        //     m.brand.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        //     m.spec.toLowerCase().includes(searchQuery.toLowerCase())
-        //   );
-        // });
+          return {
+            ...item,
+            id: item._id || item.id,
+            name: item.serviceName || item.productName || item.name || 'Electrical Item',
+            brand: item.brand || 'VOLTLINE',
+            model: item.model || '',
+            spec: item.estimated_time
+              ? `⏱ ${item.estimated_time} • Warranty: ${item.warranty || '90 Days'}`
+              : (item.description || item.spec || 'Certified Electrical Equipment'),
+            price,
+            originalPrice: origPrice,
+            discountPercentage: discount,
+            rating: typeof item.rating === 'number' ? item.rating : 4.8,
+            reviews:
+              typeof item.reviewsCount === 'number'
+                ? item.reviewsCount
+                : item.reviews || 48,
+            badge:
+              item.badge || (item.type === 'service' ? 'SERVICE' : 'VERIFIED'),
+            inStock:
+              item.inStock !== false &&
+              (item.stock === undefined || item.stock > 0),
+            image:
+              item.image ||
+              (Array.isArray(item.images) ? item.images[0] : '') ||
+              '',
+            category: item.category?._id || item.category || 'general',
+            isBackend: true,
+          };
+        });
 
         const combined = [...formattedBackend];
         const uniquePool = Array.from(
           new Map(combined.map((item) => [item.id, item])).values()
         );
 
-        const start = (pageToLoad - 1) * PAGE_SIZE;
-        const pageItems = uniquePool.slice(start, start + PAGE_SIZE);
-        const canLoadMore = start + PAGE_SIZE < uniquePool.length || hasNext;
-
         if (pageToLoad === 1) {
-          setProducts(pageItems);
+          setProducts(uniquePool);
         } else {
           setProducts((prev) => {
-            const merged = [...prev, ...pageItems];
+            const merged = [...prev, ...uniquePool];
             return Array.from(new Map(merged.map((i) => [i.id, i])).values());
           });
         }
 
         setPage(pageToLoad);
-        setHasMore(canLoadMore);
+        setHasMore(hasNext);
       } catch (err) {
         console.error('Error loading products page in HomeScreen:', err);
       } finally {
@@ -173,7 +207,7 @@ export default function HomeScreen({ onSelectCategory, onAddToCart, onNavigateTo
         setLoadingMore(false);
       }
     },
-    [searchQuery]
+    [searchQuery, queryClient]
   );
 
   useEffect(() => {
@@ -182,7 +216,11 @@ export default function HomeScreen({ onSelectCategory, onAddToCart, onNavigateTo
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([refetchCategories(), loadProductsPage(1, true)]);
+    await Promise.all([
+      refetchSettings(),
+      refetchCategories(),
+      loadProductsPage(1, true),
+    ]);
     setRefreshing(false);
   };
 
@@ -192,74 +230,260 @@ export default function HomeScreen({ onSelectCategory, onAddToCart, onNavigateTo
     }
   };
 
-  const renderProductItem = ({ item: product }) => (
-    <TouchableOpacity
-      key={product.id}
-      style={styles.productCard}
-      activeOpacity={0.88}
-      onPress={() => onSelectService && onSelectService(product)}
-    >
-      <View style={styles.cardHeader}>
-        <View style={styles.badgeContainer}>
-          <Text style={styles.badgeText}>{product.badge}</Text>
-        </View>
-        <View style={styles.ratingPill}>
-          <StarIcon size={12} color="#f59e0b" />
-          <Text style={styles.ratingText}>{product.rating}</Text>
-        </View>
-      </View>
 
-      <Text style={styles.productBrand}>{product.brand.toUpperCase()}</Text>
-      <Text style={styles.productName} numberOfLines={2}>
-        {product.name}
-      </Text>
-      <Text style={styles.productSpec} numberOfLines={1}>
-        {product.spec}
-      </Text>
+  // Dynamic Hero Banners Setup
+  const bannerRef = useRef(null);
+  const isInteracting = useRef(false);
 
-      <View style={styles.priceRow}>
-        <View>
-          <Text style={styles.price}>₹{product.price}</Text>
-          <Text style={styles.originalPrice}>₹{product.originalPrice}</Text>
+  const [activeBannerIndex, setActiveBannerIndex] = useState(0);
+  const [containerWidth, setContainerWidth] = useState(0);
+
+  const { width: screenWidth } = useWindowDimensions();
+
+  const activeBanners = (banners || [])
+    .filter((item) => item.active)
+    .sort((a, b) => (a.order || 0) - (b.order || 0));
+
+  // Compute exact banner width matching search bar and cards
+  const bannerWidth =
+    containerWidth > 0
+      ? containerWidth
+      : Math.max(280, screenWidth - 32);
+
+  const handleBannerLayout = useCallback(
+    (event) => {
+      const { width } = event.nativeEvent.layout;
+      if (width > 0 && Math.abs(width - containerWidth) > 1) {
+        setContainerWidth(width);
+      }
+    },
+    [containerWidth]
+  );
+
+  // Auto-scroll hero banner carousel reliably
+  useEffect(() => {
+    if (activeBanners.length <= 1 || bannerWidth <= 0) return;
+
+    const interval = setInterval(() => {
+      if (isInteracting.current) return;
+
+      setActiveBannerIndex((prev) => {
+        const nextIndex = (prev + 1) % activeBanners.length;
+        if (bannerRef.current) {
+          bannerRef.current.scrollTo({
+            x: nextIndex * bannerWidth,
+            y: 0,
+            animated: true,
+          });
+        }
+        return nextIndex;
+      });
+    }, 4000);
+
+    return () => clearInterval(interval);
+  }, [activeBanners.length, bannerWidth]);
+
+  const handleScroll = useCallback(
+    (event) => {
+      const offsetX = event.nativeEvent.contentOffset.x;
+      if (bannerWidth > 0 && activeBanners.length > 0) {
+        const index = Math.round(offsetX / bannerWidth);
+        const clampedIndex = Math.max(
+          0,
+          Math.min(activeBanners.length - 1, index)
+        );
+        setActiveBannerIndex((prev) =>
+          prev !== clampedIndex ? clampedIndex : prev
+        );
+      }
+    },
+    [bannerWidth, activeBanners.length]
+  );
+
+  const handleScrollBeginDrag = useCallback(() => {
+    isInteracting.current = true;
+  }, []);
+
+  const handleScrollEndDrag = useCallback(() => {
+    setTimeout(() => {
+      isInteracting.current = false;
+    }, 2000);
+  }, []);
+
+  const handleMomentumScrollEnd = useCallback(
+    (event) => {
+      const offsetX = event.nativeEvent.contentOffset.x;
+      if (bannerWidth > 0 && activeBanners.length > 0) {
+        const index = Math.round(offsetX / bannerWidth);
+        const clampedIndex = Math.max(
+          0,
+          Math.min(activeBanners.length - 1, index)
+        );
+        setActiveBannerIndex(clampedIndex);
+      }
+      setTimeout(() => {
+        isInteracting.current = false;
+      }, 2000);
+    },
+    [bannerWidth, activeBanners.length]
+  );
+
+
+
+
+  const renderProductItem = ({ item: product }) => {
+    const pid = product._id || product.id;
+    const isAdding = addingProductId === pid;
+    const inCart = isInCart(product);
+    const isAvailable = product.inStock !== false;
+
+    return (
+      <TouchableOpacity
+        key={product.id}
+        style={styles.productCard}
+        activeOpacity={0.88}
+        onPress={() => onSelectService && onSelectService(product)}
+      >
+        {/* Product Media with Badges */}
+        <View style={styles.productImageContainer}>
+          {product.image ? (
+            <Image
+              source={{ uri: product.image }}
+              style={styles.productImage}
+              resizeMode="contain"
+            />
+          ) : (
+            <View style={styles.productImagePlaceholder}>
+              <BoltIcon size={36} color="#94a3b8" />
+            </View>
+          )}
+
+          <View style={styles.cardHeaderOverlay}>
+            <View style={styles.badgeContainer}>
+              <Text style={styles.badgeText}>{product.badge}</Text>
+            </View>
+            <View style={styles.ratingPill}>
+              <StarIcon size={12} color="#f59e0b" />
+              <Text style={styles.ratingText}>
+                {product.rating} ({product.reviews})
+              </Text>
+            </View>
+          </View>
+
+          {product.discountPercentage > 0 && (
+            <View style={styles.discountTag}>
+              <Text style={styles.discountTagText}>
+                {product.discountPercentage}% OFF
+              </Text>
+            </View>
+          )}
         </View>
-        {(() => {
-          const pid = product._id || product.id;
-          const isAdding = addingProductId === pid;
-          const inCart = isInCart(product);
 
-          return (
-            <TouchableOpacity
-              style={[
-                styles.addButton,
-                inCart && styles.goToCartButton,
-                isAdding && styles.addButtonLoading,
-              ]}
-              activeOpacity={0.8}
-              disabled={isAdding}
-              onPress={(e) => {
-                e?.stopPropagation?.();
-                if (inCart) {
-                  onNavigateToCart && onNavigateToCart();
-                } else {
-                  handleAddToCartClick(product);
-                }
-              }}
-            >
-              {isAdding ? (
-                <ActivityIndicator size="small" color="#ffffff" />
-              ) : inCart ? (
-                <View style={styles.btnContentRow}>
-                  <CartIcon size={12} color="#ffffff" focused />
-                  <Text style={styles.goToCartButtonText}>GO TO CART</Text>
-                </View>
-              ) : (
-                <Text style={styles.addButtonText}>+ ADD</Text>
+        <Text style={styles.productBrand}>{product.brand.toUpperCase()}</Text>
+        <Text style={styles.productName} numberOfLines={2}>
+          {product.name}
+        </Text>
+        <Text style={styles.productSpec} numberOfLines={1}>
+          {product.spec}
+        </Text>
+
+        <View style={styles.priceRow}>
+          <View>
+            <View style={styles.priceGroup}>
+              <Text style={styles.price}>₹{product.price}</Text>
+              {product.originalPrice > product.price && (
+                <Text style={styles.originalPrice}>₹{product.originalPrice}</Text>
               )}
-            </TouchableOpacity>
-          );
-        })()}
-      </View>
-    </TouchableOpacity>
+            </View>
+            <Text style={styles.stockLabel}>
+              {isAvailable ? '✓ In Stock' : '⚠️ Out of Stock'}
+            </Text>
+          </View>
+
+          {(() => {
+            if (!isAvailable) {
+              return (
+                <View style={styles.outOfStockBtn}>
+                  <Text style={styles.outOfStockBtnText}>UNAVAILABLE</Text>
+                </View>
+              );
+            }
+
+            return (
+              <TouchableOpacity
+                style={[
+                  styles.addButton,
+                  inCart && styles.goToCartButton,
+                  isAdding && styles.addButtonLoading,
+                ]}
+                activeOpacity={0.8}
+                disabled={isAdding}
+                onPress={(e) => {
+                  e?.stopPropagation?.();
+                  if (inCart) {
+                    onNavigateToCart && onNavigateToCart();
+                  } else {
+                    handleAddToCartClick(product);
+                  }
+                }}
+              >
+                {isAdding ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : inCart ? (
+                  <View style={styles.btnContentRow}>
+                    <CartIcon size={12} color="#ffffff" focused />
+                    <Text style={styles.goToCartButtonText}>GO TO CART</Text>
+                  </View>
+                ) : (
+                  <Text style={styles.addButtonText}>+ ADD</Text>
+                )}
+              </TouchableOpacity>
+            );
+          })()}
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+
+  const BannerContent = ({ item, onNavigateToShop }) => (
+    <View style={styles.bannerContent}>
+      {!!item.tag && (
+        <Text style={styles.bannerTagText}>
+          {item.tag}
+        </Text>
+      )}
+
+      {!!item.title && (
+        <Text style={styles.bannerTitleText}>
+          {item.title}
+        </Text>
+      )}
+
+      {!!item.subtitle && (
+        <Text style={styles.bannerSubtitleText}>
+          {item.subtitle}
+        </Text>
+      )}
+
+      {!!item.discountText && (
+        <Text style={styles.bannerDiscountText}>
+          {item.discountText}
+        </Text>
+      )}
+
+      <TouchableOpacity
+        activeOpacity={0.85}
+        style={styles.bannerButton}
+        onPress={() =>
+          onNavigateToShop?.(item.targetCategory || 'all')
+        }
+      >
+        <Text style={styles.bannerButtonText}>
+          {item.buttonText || 'SHOP NOW →'}
+        </Text>
+      </TouchableOpacity>
+    </View>
   );
 
   const renderHeader = () => (
@@ -271,14 +495,18 @@ export default function HomeScreen({ onSelectCategory, onAddToCart, onNavigateTo
             <Text style={styles.brandBadgeText}>E+</Text>
           </View>
           <View>
-            <Text style={styles.brandTitle}>VOLTLINE STORE</Text>
-            <Text style={styles.brandSubtitle}>Certified Electrical Supplies & Parts</Text>
+            <Text style={styles.brandTitle}>{storeName}</Text>
+            <Text style={styles.brandSubtitle}>{tagline}</Text>
           </View>
         </View>
-        <View style={styles.liveBadge}>
-          <View style={styles.pulseDot} />
-          <Text style={styles.liveText}>NEXT-DAY DISPATCH</Text>
-        </View>
+        {announcement?.enabled && (
+          <View style={styles.liveBadge}>
+            <View style={styles.pulseDot} />
+            <Text style={styles.liveText} numberOfLines={1}>
+              {announcement.text?.includes('DISPATCH') ? 'NEXT-DAY DISPATCH' : 'LIVE OFFER'}
+            </Text>
+          </View>
+        )}
       </View>
 
       {/* Quick Search Input */}
@@ -298,24 +526,95 @@ export default function HomeScreen({ onSelectCategory, onAddToCart, onNavigateTo
         )}
       </View>
 
-      {/* Hero Electrical Sale Banner */}
-      <View style={styles.heroBanner}>
-        <View style={styles.heroTag}>
-          <BoltIcon size={14} color="#f59e0b" />
-          <Text style={styles.heroTagText}>HIGH VOLTAGE DEALS</Text>
+      {/* Dynamic Hero Banner Carousel - Perfectly Centered */}
+      {activeBanners.length > 0 && (
+        <View style={styles.bannerWrapper} onLayout={handleBannerLayout}>
+          <ScrollView
+            ref={bannerRef}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            snapToInterval={bannerWidth}
+            snapToAlignment="center"
+            decelerationRate="fast"
+            disableIntervalMomentum
+            style={{ width: bannerWidth }}
+            contentContainerStyle={styles.bannerScrollContent}
+            onScroll={handleScroll}
+            scrollEventThrottle={16}
+            onScrollBeginDrag={handleScrollBeginDrag}
+            onScrollEndDrag={handleScrollEndDrag}
+            onMomentumScrollEnd={handleMomentumScrollEnd}
+          >
+            {activeBanners.map((item, index) => (
+              <View
+                key={item._id || item.id || `banner-${index}`}
+                style={{
+                  width: bannerWidth,
+                }}
+              >
+                <TouchableOpacity
+                  activeOpacity={0.95}
+                  style={styles.bannerCard}
+                  onPress={() =>
+                    onNavigateToShop?.(item.targetCategory || 'all')
+                  }
+                >
+                  {item.image ? (
+                    <ImageBackground
+                      source={{ uri: item.image }}
+                      style={styles.bannerImageBackground}
+                      imageStyle={styles.bannerImage}
+                      resizeMode="cover"
+                    >
+                      <View style={styles.bannerOverlay}>
+                        <BannerContent
+                          item={item}
+                          onNavigateToShop={onNavigateToShop}
+                        />
+                      </View>
+                    </ImageBackground>
+                  ) : (
+                    <View style={styles.bannerFallback}>
+                      <BannerContent
+                        item={item}
+                        onNavigateToShop={onNavigateToShop}
+                      />
+                    </View>
+                  )}
+                </TouchableOpacity>
+              </View>
+            ))}
+          </ScrollView>
+
+          {/* Pagination Dots */}
+          {activeBanners.length > 1 && (
+            <View style={styles.paginationRow}>
+              {activeBanners.map((item, index) => {
+                const isActive = activeBannerIndex === index;
+                return (
+                  <TouchableOpacity
+                    key={item._id || item.id || `dot-${index}`}
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      setActiveBannerIndex(index);
+                      bannerRef.current?.scrollTo({
+                        x: index * bannerWidth,
+                        y: 0,
+                        animated: true,
+                      });
+                    }}
+                    style={[
+                      styles.dot,
+                      isActive && styles.dotActive,
+                    ]}
+                  />
+                );
+              })}
+            </View>
+          )}
         </View>
-        <Text style={styles.heroTitle}>Heavy Duty Cables & Modular Gear</Text>
-        <Text style={styles.heroSubtitle}>
-          Up to 35% discount on ISI certified wires and industrial breakers.
-        </Text>
-        <TouchableOpacity
-          style={styles.heroButton}
-          activeOpacity={0.85}
-          onPress={() => onNavigateToShop?.('wires')}
-        >
-          <Text style={styles.heroButtonText}>EXPLORE WIRE CATALOG  →</Text>
-        </TouchableOpacity>
-      </View>
+      )}
 
       {/* Categories Row */}
       <View style={styles.sectionHeader}>
@@ -345,8 +644,8 @@ export default function HomeScreen({ onSelectCategory, onAddToCart, onNavigateTo
               style={styles.categoryCard}
               activeOpacity={0.75}
               onPress={() => {
-                if (onSelectCategory) onSelectCategory(cat.id);
-                if (onNavigateToShop) onNavigateToShop(cat.id);
+                const navigateAction = onSelectCategory || onNavigateToShop;
+                if (navigateAction) navigateAction(cat.id);
               }}
             >
               <View style={styles.categoryIconCircle}>
@@ -362,9 +661,9 @@ export default function HomeScreen({ onSelectCategory, onAddToCart, onNavigateTo
 
       {/* Featured Electrical Equipment Section Header */}
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Bestselling & Verified Equipment</Text>
+        <Text style={styles.sectionTitle}>Verified Electrical Catalog</Text>
         <TouchableOpacity onPress={() => onNavigateToShop?.('all')}>
-          <Text style={styles.seeAllText}>See Catalog</Text>
+          <Text style={styles.seeAllText}>See Full Catalog</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -383,29 +682,55 @@ export default function HomeScreen({ onSelectCategory, onAddToCart, onNavigateTo
         <View style={styles.endOfListWrapper}>
           <View style={styles.endOfListDivider} />
           <Text style={styles.endOfListText}>
-            All {products.length} featured items loaded
+            All {products.length} catalog items loaded
           </Text>
           <View style={styles.endOfListDivider} />
         </View>
       )}
 
-      {/* Contractor Assurance Banner */}
+      {/* Dynamic Contractor Assurances */}
       <View style={styles.assuranceCard}>
-        <View style={styles.assuranceItem}>
-          <CheckCircleIcon size={20} color="#10b981" />
-          <View style={styles.assuranceTextCol}>
-            <Text style={styles.assuranceTitle}>100% Genuine ISI Mark</Text>
-            <Text style={styles.assuranceDesc}>Direct from authorized brand distributors</Text>
-          </View>
-        </View>
-        <View style={styles.divider} />
-        <View style={styles.assuranceItem}>
-          <CheckCircleIcon size={20} color="#2563eb" />
-          <View style={styles.assuranceTextCol}>
-            <Text style={styles.assuranceTitle}>Site Delivery Available</Text>
-            <Text style={styles.assuranceDesc}>Bulk dispatch for commercial & residential</Text>
-          </View>
-        </View>
+        {assurances.length > 0 ? (
+          assurances.map((assur, idx) => (
+            <React.Fragment key={assur._id || idx}>
+              {idx > 0 && <View style={styles.divider} />}
+              <View style={styles.assuranceItem}>
+                <CheckCircleIcon
+                  size={20}
+                  color={idx % 2 === 0 ? '#10b981' : '#2563eb'}
+                />
+                <View style={styles.assuranceTextCol}>
+                  <Text style={styles.assuranceTitle}>{assur.title}</Text>
+                  {assur.description ? (
+                    <Text style={styles.assuranceDesc}>{assur.description}</Text>
+                  ) : null}
+                </View>
+              </View>
+            </React.Fragment>
+          ))
+        ) : (
+          <>
+            <View style={styles.assuranceItem}>
+              <CheckCircleIcon size={20} color="#10b981" />
+              <View style={styles.assuranceTextCol}>
+                <Text style={styles.assuranceTitle}>100% Genuine ISI Mark</Text>
+                <Text style={styles.assuranceDesc}>
+                  Direct from authorized brand distributors
+                </Text>
+              </View>
+            </View>
+            <View style={styles.divider} />
+            <View style={styles.assuranceItem}>
+              <CheckCircleIcon size={20} color="#2563eb" />
+              <View style={styles.assuranceTextCol}>
+                <Text style={styles.assuranceTitle}>Site Delivery Available</Text>
+                <Text style={styles.assuranceDesc}>
+                  Bulk dispatch for commercial & residential
+                </Text>
+              </View>
+            </View>
+          </>
+        )}
       </View>
 
       <View style={{ height: 80 }} />
@@ -423,7 +748,9 @@ export default function HomeScreen({ onSelectCategory, onAddToCart, onNavigateTo
     }
     return (
       <View style={styles.emptyContainer}>
-        <Text style={styles.emptyText}>No equipment found matching "{searchQuery}"</Text>
+        <Text style={styles.emptyText}>
+          {`No equipment found matching "${searchQuery}"`}
+        </Text>
       </View>
     );
   };
@@ -436,9 +763,9 @@ export default function HomeScreen({ onSelectCategory, onAddToCart, onNavigateTo
       data={products}
       keyExtractor={(item) => String(item.id)}
       renderItem={renderProductItem}
-      ListHeaderComponent={renderHeader}
-      ListFooterComponent={renderFooter}
-      ListEmptyComponent={renderEmpty}
+      ListHeaderComponent={renderHeader()}
+      ListFooterComponent={renderFooter()}
+      ListEmptyComponent={renderEmpty()}
       onEndReached={handleLoadMore}
       onEndReachedThreshold={0.4}
       removeClippedSubviews={Platform.OS === 'android'}
@@ -477,6 +804,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+    flex: 1,
   },
   brandBadge: {
     width: 38,
@@ -542,50 +870,111 @@ const styles = StyleSheet.create({
     color: '#0f172a',
     marginLeft: 8,
   },
-  heroBanner: {
-    backgroundColor: '#0f172a',
-    borderRadius: 16,
-    padding: 18,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: '#1e293b',
-  },
-  heroTag: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 8,
-  },
-  heroTagText: {
-    color: '#f59e0b',
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 0.6,
-  },
-  heroTitle: {
-    color: '#ffffff',
-    fontSize: 18,
-    fontWeight: '700',
-    marginBottom: 6,
-  },
-  heroSubtitle: {
-    color: '#94a3b8',
+  clearSearchText: {
     fontSize: 12,
-    lineHeight: 18,
-    marginBottom: 14,
+    color: '#64748b',
+    fontWeight: '600',
+    paddingHorizontal: 6,
   },
-  heroButton: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#2563eb',
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: 8,
+  bannerWrapper: {
+    marginTop: 4,
+    marginBottom: 10,
+    width: '100%',
+    alignItems: 'center',
   },
-  heroButtonText: {
+  bannerScrollContent: {
+    alignItems: 'center',
+  },
+  bannerCard: {
+    width: '100%',
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: '#102B50',
+  },
+  bannerImageBackground: {
+    minHeight: 210,
+    justifyContent: 'center',
+  },
+  bannerImage: {
+    borderRadius: 16,
+  },
+  bannerOverlay: {
+    minHeight: 210,
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.42)',
+    padding: 20,
+  },
+  bannerFallback: {
+    minHeight: 210,
+    justifyContent: 'center',
+    backgroundColor: '#102B50',
+    padding: 20,
+    borderRadius: 16,
+  },
+  bannerContent: {
+    alignItems: 'flex-start',
+  },
+  bannerTagText: {
+    marginBottom: 6,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+    color: '#fef08a',
+  },
+  bannerTitleText: {
+    marginBottom: 4,
+    fontSize: 24,
+    fontWeight: '900',
     color: '#ffffff',
-    fontSize: 11,
-    fontWeight: '700',
+    lineHeight: 28,
+  },
+  bannerSubtitleText: {
+    marginBottom: 6,
+    fontSize: 12,
+    color: '#f1f5f9',
+    lineHeight: 16,
+  },
+  bannerDiscountText: {
+    marginBottom: 12,
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#fde047',
+  },
+  bannerButton: {
+    marginTop: 4,
+    borderRadius: 8,
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    elevation: 3,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+  },
+  bannerButtonText: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: '#102b50',
     letterSpacing: 0.5,
+  },
+  paginationRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 10,
+    marginBottom: 10,
+    gap: 6,
+  },
+  dot: {
+    height: 8,
+    width: 8,
+    borderRadius: 4,
+    backgroundColor: '#cbd5e1',
+  },
+  dotActive: {
+    width: 24,
+    backgroundColor: '#2563eb',
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -637,57 +1026,95 @@ const styles = StyleSheet.create({
     color: '#334155',
     textAlign: 'center',
   },
-  clearSearchText: {
-    fontSize: 12,
-    color: '#64748b',
-    fontWeight: '600',
-    paddingHorizontal: 6,
-  },
-  productsGrid: {
-    gap: 12,
-    marginBottom: 20,
-  },
   productCard: {
     backgroundColor: '#ffffff',
     borderRadius: 14,
-    padding: 16,
+    padding: 14,
     borderWidth: 1,
     borderColor: '#e2e8f0',
     shadowColor: '#0f172a',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.03,
+    shadowOpacity: 0.04,
     shadowRadius: 6,
     elevation: 1,
     marginBottom: 12,
   },
-  cardHeader: {
+  productImageContainer: {
+    width: '100%',
+    height: 140,
+    backgroundColor: '#f8fafc',
+    borderRadius: 10,
+    overflow: 'hidden',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 10,
+    position: 'relative',
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+  },
+  productImage: {
+    width: '100%',
+    height: '100%',
+  },
+  productImagePlaceholder: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f8fafc',
+  },
+  cardHeaderOverlay: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    right: 8,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 6,
   },
   badgeContainer: {
-    backgroundColor: '#eff6ff',
+    backgroundColor: 'rgba(255, 255, 255, 0.94)',
     paddingVertical: 3,
     paddingHorizontal: 7,
-    borderRadius: 4,
+    borderRadius: 6,
     borderWidth: 1,
     borderColor: '#dbeafe',
   },
   badgeText: {
     fontSize: 9,
-    fontWeight: '700',
+    fontWeight: '800',
     color: '#2563eb',
+    letterSpacing: 0.3,
   },
   ratingPill: {
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.94)',
+    paddingVertical: 2.5,
+    paddingHorizontal: 6,
+    borderRadius: 6,
     gap: 3,
+    borderWidth: 1,
+    borderColor: '#fef3c7',
   },
   ratingText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '700',
     color: '#475569',
+  },
+  discountTag: {
+    position: 'absolute',
+    bottom: 8,
+    left: 8,
+    backgroundColor: '#16a34a',
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+    borderRadius: 4,
+  },
+  discountTagText: {
+    color: '#ffffff',
+    fontSize: 9,
+    fontWeight: '800',
   },
   productBrand: {
     fontSize: 10,
@@ -706,12 +1133,18 @@ const styles = StyleSheet.create({
   productSpec: {
     fontSize: 11,
     color: '#64748b',
-    marginBottom: 12,
+    marginBottom: 10,
   },
   priceRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    paddingTop: 4,
+  },
+  priceGroup: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 6,
   },
   price: {
     fontSize: 17,
@@ -722,6 +1155,12 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#94a3b8',
     textDecorationLine: 'line-through',
+  },
+  stockLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#16a34a',
+    marginTop: 1,
   },
   addButton: {
     backgroundColor: '#2563eb',
@@ -748,22 +1187,37 @@ const styles = StyleSheet.create({
   },
   goToCartButton: {
     backgroundColor: '#059669',
-    paddingHorizontal: 10,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 8,
   },
   goToCartButtonText: {
     color: '#ffffff',
-    fontSize: 10,
-    fontWeight: '800',
+    fontSize: 11,
+    fontWeight: '700',
     letterSpacing: 0.5,
+  },
+  outOfStockBtn: {
+    backgroundColor: '#f1f5f9',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  outOfStockBtnText: {
+    color: '#94a3b8',
+    fontSize: 10,
+    fontWeight: '700',
   },
   assuranceCard: {
     backgroundColor: '#ffffff',
-    borderRadius: 12,
-    padding: 14,
+    borderRadius: 14,
+    padding: 16,
     borderWidth: 1,
     borderColor: '#e2e8f0',
+    gap: 12,
     marginTop: 8,
-    marginBottom: 16,
   },
   assuranceItem: {
     flexDirection: 'row',
@@ -774,26 +1228,25 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   assuranceTitle: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
     color: '#0f172a',
   },
   assuranceDesc: {
     fontSize: 11,
     color: '#64748b',
+    marginTop: 2,
   },
   divider: {
     height: 1,
     backgroundColor: '#f1f5f9',
-    marginVertical: 10,
   },
   footerLoader: {
-    paddingVertical: 18,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
+    paddingVertical: 16,
     gap: 8,
-    marginBottom: 8,
   },
   footerLoaderText: {
     fontSize: 12,
@@ -803,9 +1256,8 @@ const styles = StyleSheet.create({
   endOfListWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 18,
-    gap: 12,
+    marginVertical: 16,
+    gap: 10,
   },
   endOfListDivider: {
     flex: 1,
@@ -818,9 +1270,8 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   emptyContainer: {
-    paddingVertical: 36,
+    paddingVertical: 32,
     alignItems: 'center',
-    justifyContent: 'center',
   },
   emptyText: {
     fontSize: 13,

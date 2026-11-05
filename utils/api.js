@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const FALLBACK_API_URL = 'https://ecom-backend-git-main-ramji735s-projects.vercel.app';
 
@@ -13,7 +14,6 @@ const getApiBaseUrl = () => {
   return FALLBACK_API_URL;
 };
 
-console.log('API Base URL:', getApiBaseUrl());
 export const api = axios.create({
   baseURL: getApiBaseUrl(),
   withCredentials: true,
@@ -22,28 +22,99 @@ export const api = axios.create({
   },
 });
 
-// Helper to set authorization header dynamically
+// In-memory active token
+let currentAuthToken = null;
+
+// Helper to get active token across all tiers (Memory -> Session -> Local -> AsyncStorage)
+export const getActiveToken = async () => {
+  if (currentAuthToken) return currentAuthToken;
+  try {
+    // 1. Web sessionStorage (Explicit user request for session storage)
+    if (typeof window !== 'undefined' && window.sessionStorage) {
+      const sessionTok =
+        window.sessionStorage.getItem('voltline_auth_token') ||
+        window.sessionStorage.getItem('token');
+      if (sessionTok) {
+        currentAuthToken = sessionTok;
+        return sessionTok;
+      }
+    }
+    // 2. Web localStorage
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const localTok =
+        window.localStorage.getItem('voltline_auth_token') ||
+        window.localStorage.getItem('token');
+      if (localTok) {
+        currentAuthToken = localTok;
+        return localTok;
+      }
+    }
+    // 3. Native / Mobile AsyncStorage
+    const pairs = await AsyncStorage.multiGet(['voltline_auth_token', 'token']).catch(() => []);
+    for (const [, val] of pairs) {
+      if (val) {
+        currentAuthToken = val;
+        return val;
+      }
+    }
+  } catch (e) {
+    // Ignore storage errors
+  }
+  return null;
+};
+
+// Helper to set authorization token dynamically across all storage tiers
 export const setAuthToken = (token) => {
+  currentAuthToken = token || null;
   if (token) {
     api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+    try {
+      if (typeof window !== 'undefined') {
+        if (window.sessionStorage) {
+          window.sessionStorage.setItem('voltline_auth_token', token);
+          window.sessionStorage.setItem('token', token);
+        }
+        if (window.localStorage) {
+          window.localStorage.setItem('voltline_auth_token', token);
+          window.localStorage.setItem('token', token);
+        }
+      }
+      AsyncStorage.multiSet([
+        ['voltline_auth_token', token],
+        ['token', token],
+      ]).catch(() => {});
+    } catch (e) {}
   } else {
     delete api.defaults.headers.common['Authorization'];
+    try {
+      if (typeof window !== 'undefined') {
+        if (window.sessionStorage) {
+          window.sessionStorage.removeItem('voltline_auth_token');
+          window.sessionStorage.removeItem('token');
+        }
+        if (window.localStorage) {
+          window.localStorage.removeItem('voltline_auth_token');
+          window.localStorage.removeItem('token');
+        }
+      }
+      AsyncStorage.multiRemove(['voltline_auth_token', 'token']).catch(() => {});
+    } catch (e) {}
   }
 };
 
-// Request interceptor to automatically attach authorization token if available
+// Request interceptor to automatically attach authorization token to EVERY outgoing request
 api.interceptors.request.use(
   async (config) => {
-    if (!config.headers['Authorization']) {
-      try {
-        let token = null;
-        if (typeof window !== 'undefined' && window.localStorage) {
-          token = window.localStorage.getItem('voltline_auth_token');
-        }
-        if (token) {
-          config.headers['Authorization'] = `Bearer ${token}`;
-        }
-      } catch (e) {}
+    let token = currentAuthToken;
+    if (!token) {
+      token = await getActiveToken();
+    }
+    if (token) {
+      if (config.headers?.set) {
+        config.headers.set('Authorization', `Bearer ${token}`);
+      } else if (config.headers) {
+        config.headers['Authorization'] = `Bearer ${token}`;
+      }
     }
     return config;
   },

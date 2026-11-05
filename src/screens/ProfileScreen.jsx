@@ -1,39 +1,126 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   StyleSheet,
   Text,
   View,
   ScrollView,
   TouchableOpacity,
+  TextInput,
+  Modal,
+  ActivityIndicator,
+  Alert,
+  Platform,
   RefreshControl,
+  BackHandler,
 } from 'react-native';
-import { CheckCircleIcon, BoltIcon } from '../components/Icons';
+import { useFocusEffect } from '@react-navigation/native';
+import { ArrowLeftIcon, CheckCircleIcon, BoltIcon, CloseIcon } from '../components/Icons';
 import { useAuth } from '../../context/AuthContext';
-import { useOrders, useAddresses } from '../hooks';
-import OrderService from '../../services/orderService';
-import AddressService from '../../services/addressService';
+import { useOrders, useAddresses, useSettings } from '../hooks';
 
-export default function ProfileScreen({ onNavigateToAuth, onNavigateToOrders, onNavigateToAddresses }) {
-  const { user, isAuthenticated, logout } = useAuth();
+export default function ProfileScreen({
+  navigation,
+  onBack: propOnBack,
+  onNavigateToAuth: propOnNavigateToAuth,
+  onNavigateToOrders: propOnNavigateToOrders,
+  onNavigateToAddresses: propOnNavigateToAddresses,
+}) {
+  const onBack = useCallback(() => {
+    if (propOnBack) {
+      propOnBack();
+    } else if (navigation?.jumpTo) {
+      navigation.jumpTo('Home');
+    } else if (navigation?.navigate) {
+      navigation.navigate('Home');
+    }
+  }, [propOnBack, navigation]);
+
+  useFocusEffect(
+    useCallback(() => {
+      const onBackPress = () => {
+        onBack();
+        return true;
+      };
+
+      const subscription = BackHandler.addEventListener(
+        'hardwareBackPress',
+        onBackPress
+      );
+
+      return () => subscription.remove();
+    }, [onBack])
+  );
+  const onNavigateToOrders = propOnNavigateToOrders || (() => navigation?.navigate('Orders'));
+  const onNavigateToAddresses = propOnNavigateToAddresses || (() => navigation?.navigate('Addresses'));
+  const onNavigateToAuth = propOnNavigateToAuth || ((screen) => navigation?.navigate(screen === 'signup' ? 'SignUp' : 'Login'));
+  const { user, isAuthenticated, logout, updateProfile, refreshProfile } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
 
-  const { data: orders = [], refetch: refetchOrders } = useOrders({ enabled: isAuthenticated });
-  const { data: addresses = [], refetch: refetchAddresses } = useAddresses({ enabled: isAuthenticated });
+  // Dynamic Store & App Settings
+  const {
+    storeName,
+    tagline,
+    supportEmail,
+    supportPhone,
+    whatsappNumber,
+    officeAddress,
+    city,
+    state,
+    pincode,
+    gstin,
+    refetch: refetchSettings,
+  } = useSettings();
 
-  const orderCount = Array.isArray(orders) ? orders.length : 0;
-  const siteCount = Array.isArray(addresses) ? addresses.length : 0;
-  const rawSum = Array.isArray(orders) ? orders.reduce((acc, o) => acc + (o.summary?.grandTotal || 0), 0) : 0;
-  const totalSpent = rawSum >= 1000 ? (rawSum / 1000).toFixed(1) + 'k' : rawSum.toString();
+  const { data: orders = [], refetch: refetchOrders } = useOrders({
+    enabled: isAuthenticated,
+  });
+  const { data: addresses = [], refetch: refetchAddresses } = useAddresses({
+    enabled: isAuthenticated,
+  });
+
+  // Modal States
+  const [showEditProfile, setShowEditProfile] = useState(false);
+  const [showSupportModal, setShowSupportModal] = useState(false);
+  const [showCertificatesModal, setShowCertificatesModal] = useState(false);
+
+  // Profile Form States
+  const [nameInput, setNameInput] = useState(user?.name || '');
+  const [phoneInput, setPhoneInput] = useState(user?.phone || '');
+  const [companyInput, setCompanyInput] = useState(user?.companyName || '');
+  const [gstinInput, setGstinInput] = useState(user?.gstin || '');
+  const [updatingProfile, setUpdatingProfile] = useState(false);
+  const [profileMsg, setProfileMsg] = useState('');
+
+  const openEditProfile = () => {
+    setNameInput(user?.name || '');
+    setPhoneInput(user?.phone || '');
+    setCompanyInput(user?.companyName || '');
+    setGstinInput(user?.gstin || '');
+    setProfileMsg('');
+    setShowEditProfile(true);
+  };
+
+  const orderCount = isAuthenticated && Array.isArray(orders) ? orders.length : 0;
+  const siteCount = isAuthenticated && Array.isArray(addresses) ? addresses.length : 0;
+  const rawSum = isAuthenticated && Array.isArray(orders)
+    ? orders.reduce((acc, o) => acc + (o.summary?.grandTotal || 0), 0)
+    : 0;
+  const totalSpent =
+    rawSum >= 1000 ? (rawSum / 1000).toFixed(1) + 'k' : rawSum.toString();
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([refetchOrders(), refetchAddresses()]);
+    await Promise.all([
+      isAuthenticated ? refetchOrders() : Promise.resolve(),
+      isAuthenticated ? refetchAddresses() : Promise.resolve(),
+      refetchSettings(),
+      isAuthenticated && refreshProfile ? refreshProfile() : Promise.resolve(),
+    ]);
     setRefreshing(false);
   };
 
-  const displayName = user?.name || 'Electrical Contractor';
-  const displayEmail = user?.email || 'contractor@voltline.in';
-  const displayPhone = user?.phone || '+91 98765 43210';
+  const displayName = user?.name || (isAuthenticated ? 'Electrical Contractor' : 'Guest Contractor');
+  const displayEmail = user?.email || (isAuthenticated ? 'contractor@voltline.in' : 'Not signed in');
   const initials = displayName
     .split(' ')
     .map((w) => w[0])
@@ -48,6 +135,35 @@ export default function ProfileScreen({ onNavigateToAuth, onNavigateToOrders, on
     }
   };
 
+  const handleSaveProfile = async () => {
+    if (!nameInput.trim()) {
+      setProfileMsg('Please enter your name');
+      return;
+    }
+    setUpdatingProfile(true);
+    setProfileMsg('');
+    try {
+      if (updateProfile) {
+        await updateProfile({
+          name: nameInput.trim(),
+          phone: phoneInput.trim(),
+          companyName: companyInput.trim(),
+          gstin: gstinInput.trim().toUpperCase(),
+        });
+      }
+      setShowEditProfile(false);
+      if (Platform.OS === 'web') {
+        window.alert('Profile updated successfully!');
+      } else {
+        Alert.alert('Success', 'Profile updated successfully!');
+      }
+    } catch (err) {
+      setProfileMsg(err.message || 'Failed to update profile');
+    } finally {
+      setUpdatingProfile(false);
+    }
+  };
+  
   return (
     <ScrollView
       style={styles.container}
@@ -63,8 +179,19 @@ export default function ProfileScreen({ onNavigateToAuth, onNavigateToOrders, on
       }
     >
       <View style={styles.header}>
-        <Text style={styles.eyebrow}>CLIENT DASHBOARD</Text>
-        <Text style={styles.title}>Account & Services</Text>
+        <View style={styles.headerLeft}>
+          <TouchableOpacity
+            style={styles.backBtn}
+            activeOpacity={0.7}
+            onPress={onBack}
+          >
+            <ArrowLeftIcon size={18} color="#0f172a" />
+          </TouchableOpacity>
+          <View>
+            <Text style={styles.eyebrow}>CLIENT DASHBOARD</Text>
+            <Text style={styles.title}>Account & Services</Text>
+          </View>
+        </View>
       </View>
 
       {/* User Info Card */}
@@ -81,13 +208,30 @@ export default function ProfileScreen({ onNavigateToAuth, onNavigateToOrders, on
           {!!user?.phone && (
             <Text style={styles.userPhone}>📞 {user.phone}</Text>
           )}
-          <View style={styles.tierBadge}>
-            <BoltIcon size={12} color="#f59e0b" />
-            <Text style={styles.tierText}>
-              {user?.role === 'admin'
-                ? 'SYSTEM ADMINISTRATOR'
-                : 'TIER 1 CERTIFIED BUYER'}
-            </Text>
+          {!!user?.companyName && (
+            <Text style={styles.userCompany}>🏢 {user.companyName}</Text>
+          )}
+
+          <View style={styles.badgeActionsRow}>
+            <View style={styles.tierBadge}>
+              <BoltIcon size={12} color="#f59e0b" />
+              <Text style={styles.tierText}>
+                {!isAuthenticated
+                  ? 'GUEST VISITOR'
+                  : user?.role === 'admin'
+                  ? 'SYSTEM ADMINISTRATOR'
+                  : 'TIER 1 CERTIFIED BUYER'}
+              </Text>
+            </View>
+
+            {isAuthenticated && (
+              <TouchableOpacity
+                style={styles.editProfileBtn}
+                onPress={openEditProfile}
+              >
+                <Text style={styles.editProfileBtnText}>Edit Profile</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
       </View>
@@ -110,7 +254,7 @@ export default function ProfileScreen({ onNavigateToAuth, onNavigateToOrders, on
 
       {/* Account Settings / Actions */}
       <View style={styles.menuSection}>
-        <Text style={styles.sectionTitle}>Account & Orders</Text>
+        <Text style={styles.sectionTitle}>Account & Services</Text>
 
         <TouchableOpacity
           style={styles.menuItem}
@@ -120,7 +264,9 @@ export default function ProfileScreen({ onNavigateToAuth, onNavigateToOrders, on
           <Text style={styles.menuIcon}>📦</Text>
           <View style={styles.menuTextWrap}>
             <Text style={styles.menuLabel}>Order History & GST Invoices</Text>
-            <Text style={styles.menuSub}>Track active dispatches & download tax invoices</Text>
+            <Text style={styles.menuSub}>
+              Track dispatches, delivery progress & download GST invoices
+            </Text>
           </View>
           <Text style={styles.arrow}>›</Text>
         </TouchableOpacity>
@@ -133,16 +279,39 @@ export default function ProfileScreen({ onNavigateToAuth, onNavigateToOrders, on
           <Text style={styles.menuIcon}>📍</Text>
           <View style={styles.menuTextWrap}>
             <Text style={styles.menuLabel}>Delivery Addresses</Text>
-            <Text style={styles.menuSub}>Project sites, warehouses, office addresses</Text>
+            <Text style={styles.menuSub}>
+              Project sites, warehouses, office delivery addresses
+            </Text>
           </View>
           <Text style={styles.arrow}>›</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.menuItem} activeOpacity={0.7}>
+        <TouchableOpacity
+          style={styles.menuItem}
+          activeOpacity={0.7}
+          onPress={() => setShowCertificatesModal(true)}
+        >
           <Text style={styles.menuIcon}>⚡</Text>
           <View style={styles.menuTextWrap}>
             <Text style={styles.menuLabel}>Warranty & Product Certificates</Text>
-            <Text style={styles.menuSub}>Verify Havells, Polycab & Schneider ISI certificates</Text>
+            <Text style={styles.menuSub}>
+              Verify Havells, Polycab & Schneider ISI certificates
+            </Text>
+          </View>
+          <Text style={styles.arrow}>›</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.menuItem}
+          activeOpacity={0.7}
+          onPress={() => setShowSupportModal(true)}
+        >
+          <Text style={styles.menuIcon}>📞</Text>
+          <View style={styles.menuTextWrap}>
+            <Text style={styles.menuLabel}>Store Details & Support Hotline</Text>
+            <Text style={styles.menuSub}>
+              Warehouse contact, WhatsApp support, GSTIN details
+            </Text>
           </View>
           <Text style={styles.arrow}>›</Text>
         </TouchableOpacity>
@@ -186,6 +355,224 @@ export default function ProfileScreen({ onNavigateToAuth, onNavigateToOrders, on
       </View>
 
       <View style={{ height: 90 }} />
+
+      {/* EDIT PROFILE MODAL */}
+      <Modal
+        visible={showEditProfile}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowEditProfile(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Edit Contractor Profile</Text>
+              <TouchableOpacity onPress={() => setShowEditProfile(false)}>
+                <CloseIcon size={20} color="#64748b" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <View style={styles.formGroup}>
+                <Text style={styles.inputLabel}>Full Name *</Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={nameInput}
+                  onChangeText={setNameInput}
+                  placeholder="e.g. Rajesh Sharma"
+                  placeholderTextColor="#94a3b8"
+                />
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.inputLabel}>Mobile Phone</Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={phoneInput}
+                  onChangeText={setPhoneInput}
+                  placeholder="e.g. 9876543210"
+                  keyboardType="phone-pad"
+                  placeholderTextColor="#94a3b8"
+                />
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.inputLabel}>Company / Electrical Firm</Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={companyInput}
+                  onChangeText={setCompanyInput}
+                  placeholder="e.g. Apex Power & Electricals"
+                  placeholderTextColor="#94a3b8"
+                />
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.inputLabel}>GSTIN (Tax Identification)</Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={gstinInput}
+                  onChangeText={(val) => setGstinInput(val.toUpperCase())}
+                  placeholder="e.g. 19AAACV1234F1Z5"
+                  autoCapitalize="characters"
+                  placeholderTextColor="#94a3b8"
+                />
+              </View>
+
+              {!!profileMsg && (
+                <Text style={styles.errorText}>{profileMsg}</Text>
+              )}
+
+              <TouchableOpacity
+                style={styles.saveProfileBtn}
+                onPress={handleSaveProfile}
+                disabled={updatingProfile}
+              >
+                {updatingProfile ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <Text style={styles.saveProfileBtnText}>SAVE CHANGES</Text>
+                )}
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* STORE & SUPPORT HOTLINE MODAL */}
+      <Modal
+        visible={showSupportModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowSupportModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Store & Support Details</Text>
+              <TouchableOpacity onPress={() => setShowSupportModal(false)}>
+                <CloseIcon size={20} color="#64748b" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} style={{ gap: 14 }}>
+              <View style={styles.supportCard}>
+                <Text style={styles.supportLabel}>STORE NAME</Text>
+                <Text style={styles.supportValue}>{storeName}</Text>
+                <Text style={styles.supportSub}>{tagline}</Text>
+              </View>
+
+              <View style={styles.supportCard}>
+                <Text style={styles.supportLabel}>CUSTOMER SUPPORT PHONE</Text>
+                <Text style={styles.supportValue}>{supportPhone}</Text>
+                <Text style={styles.supportSub}>Mon - Sat: 9:00 AM - 8:00 PM</Text>
+              </View>
+
+              <View style={styles.supportCard}>
+                <Text style={styles.supportLabel}>WHATSAPP HOTLINE</Text>
+                <Text style={styles.supportValue}>{whatsappNumber}</Text>
+                <Text style={styles.supportSub}>Direct contractor bulk inquiries</Text>
+              </View>
+
+              <View style={styles.supportCard}>
+                <Text style={styles.supportLabel}>OFFICIAL EMAIL</Text>
+                <Text style={styles.supportValue}>{supportEmail}</Text>
+              </View>
+
+              <View style={styles.supportCard}>
+                <Text style={styles.supportLabel}>CENTRAL WAREHOUSE & DISPATCH</Text>
+                <Text style={styles.supportValue}>
+                  {officeAddress}, {city}, {state} - {pincode}
+                </Text>
+                <Text style={styles.supportSub}>Official GSTIN: {gstin}</Text>
+              </View>
+
+              <TouchableOpacity
+                style={styles.dismissBtn}
+                onPress={() => setShowSupportModal(false)}
+              >
+                <Text style={styles.dismissBtnText}>CLOSE</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* WARRANTY & CERTIFICATES MODAL */}
+      <Modal
+        visible={showCertificatesModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowCertificatesModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Quality Standards & ISI Certs</Text>
+              <TouchableOpacity onPress={() => setShowCertificatesModal(false)}>
+                <CloseIcon size={20} color="#64748b" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <View style={styles.certItem}>
+                <View style={styles.certIconWrap}>
+                  <Text style={styles.certEmoji}>🛡️</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.certTitle}>IS:694 Heavy Copper Cables</Text>
+                  <Text style={styles.certDesc}>
+                    All wires sold by Voltline adhere to Bureau of Indian Standards (BIS) IS:694 for flame retardant low smoke (FR-LSH) specifications.
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.certItem}>
+                <View style={styles.certIconWrap}>
+                  <Text style={styles.certEmoji}>⚡</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.certTitle}>IS/IEC 60898-1 Circuit Breakers</Text>
+                  <Text style={styles.certDesc}>
+                    Legrand and Schneider MCBs carry certified 10kA short circuit break ratings with thermal-magnetic trip curves.
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.certItem}>
+                <View style={styles.certIconWrap}>
+                  <Text style={styles.certEmoji}>🔘</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.certTitle}>IS:3854 Switches & Sockets</Text>
+                  <Text style={styles.certDesc}>
+                    Tested for 100,000 continuous switching operations with pure silver inlay contacts to prevent spark pitting.
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.certItem}>
+                <View style={styles.certIconWrap}>
+                  <Text style={styles.certEmoji}>📋</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.certTitle}>How to Claim Manufacturer Warranty</Text>
+                  <Text style={styles.certDesc}>
+                    Your Voltline Tax Invoice serves as valid proof of purchase for all brand service centers nationwide. Contact support hotline for direct onsite technician inspection.
+                  </Text>
+                </View>
+              </View>
+
+              <TouchableOpacity
+                style={styles.dismissBtn}
+                onPress={() => setShowCertificatesModal(false)}
+              >
+                <Text style={styles.dismissBtnText}>GOT IT</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -198,9 +585,25 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: 16,
     paddingTop: 12,
+    paddingBottom: 40,
   },
   header: {
     marginBottom: 16,
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  backBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: '#ffffff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    marginRight: 10,
   },
   eyebrow: {
     fontSize: 10,
@@ -254,33 +657,57 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#64748b',
     marginTop: 2,
-    marginBottom: 2,
   },
   userPhone: {
     fontSize: 11,
-    color: '#64748b',
-    marginBottom: 6,
+    color: '#475569',
+    marginTop: 2,
+    fontWeight: '500',
+  },
+  userCompany: {
+    fontSize: 11,
+    color: '#2563eb',
+    marginTop: 2,
+    fontWeight: '600',
+  },
+  badgeActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 8,
   },
   tierBadge: {
-    alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#fef3c7',
     paddingVertical: 3,
     paddingHorizontal: 8,
-    borderRadius: 4,
+    borderRadius: 6,
     gap: 4,
-    marginTop: 4,
   },
   tierText: {
     fontSize: 9,
     fontWeight: '800',
-    color: '#b45309',
+    color: '#92400e',
+    letterSpacing: 0.5,
+  },
+  editProfileBtn: {
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    backgroundColor: '#f1f5f9',
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+  },
+  editProfileBtnText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#2563eb',
   },
   statsRow: {
     flexDirection: 'row',
     gap: 10,
-    marginBottom: 20,
+    marginBottom: 16,
   },
   statBox: {
     flex: 1,
@@ -292,25 +719,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   statNumber: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '800',
     color: '#0f172a',
   },
   statLabel: {
     fontSize: 10,
     color: '#64748b',
+    fontWeight: '600',
     marginTop: 2,
   },
   menuSection: {
     backgroundColor: '#ffffff',
     borderRadius: 14,
-    padding: 14,
+    padding: 16,
     borderWidth: 1,
     borderColor: '#e2e8f0',
     marginBottom: 16,
   },
   sectionTitle: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '700',
     color: '#0f172a',
     marginBottom: 12,
@@ -318,12 +746,12 @@ const styles = StyleSheet.create({
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10,
+    paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#f1f5f9',
   },
   menuIcon: {
-    fontSize: 20,
+    fontSize: 18,
     marginRight: 12,
   },
   menuTextWrap: {
@@ -331,8 +759,8 @@ const styles = StyleSheet.create({
   },
   menuLabel: {
     fontSize: 13,
-    fontWeight: '600',
-    color: '#1e293b',
+    fontWeight: '700',
+    color: '#0f172a',
   },
   menuSub: {
     fontSize: 11,
@@ -342,7 +770,7 @@ const styles = StyleSheet.create({
   arrow: {
     fontSize: 18,
     color: '#94a3b8',
-    fontWeight: '600',
+    fontWeight: '700',
   },
   authCard: {
     backgroundColor: '#ffffff',
@@ -350,17 +778,32 @@ const styles = StyleSheet.create({
     padding: 16,
     borderWidth: 1,
     borderColor: '#e2e8f0',
+    marginBottom: 16,
   },
   authTitle: {
     fontSize: 14,
     fontWeight: '700',
     color: '#0f172a',
-    marginBottom: 4,
   },
   authSub: {
     fontSize: 12,
     color: '#64748b',
+    marginTop: 4,
     marginBottom: 12,
+  },
+  logoutBtn: {
+    backgroundColor: '#fef2f2',
+    borderWidth: 1,
+    borderColor: '#fecaca',
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  logoutBtnText: {
+    color: '#ef4444',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
   authButtons: {
     flexDirection: 'row',
@@ -368,42 +811,172 @@ const styles = StyleSheet.create({
   },
   loginBtn: {
     flex: 1,
-    backgroundColor: '#eff6ff',
-    borderWidth: 1,
-    borderColor: '#dbeafe',
+    backgroundColor: '#2563eb',
     paddingVertical: 10,
     borderRadius: 8,
     alignItems: 'center',
   },
   loginBtnText: {
+    color: '#ffffff',
     fontSize: 12,
     fontWeight: '700',
-    color: '#2563eb',
   },
   signupBtn: {
     flex: 1,
-    backgroundColor: '#0f172a',
+    backgroundColor: '#f1f5f9',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
     paddingVertical: 10,
     borderRadius: 8,
     alignItems: 'center',
   },
   signupBtnText: {
+    color: '#0f172a',
     fontSize: 12,
     fontWeight: '700',
-    color: '#ffffff',
   },
-  logoutBtn: {
-    backgroundColor: '#fef2f2',
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  modalContent: {
+    width: '100%',
+    maxWidth: 420,
+    maxHeight: '85%',
+    backgroundColor: '#ffffff',
+    borderRadius: 18,
+    padding: 20,
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  formGroup: {
+    marginBottom: 12,
+  },
+  inputLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#475569',
+    marginBottom: 4,
+  },
+  textInput: {
+    height: 42,
+    backgroundColor: '#f8fafc',
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#fecaca',
-    paddingVertical: 12,
+    borderColor: '#e2e8f0',
+    paddingHorizontal: 12,
+    fontSize: 13,
+    color: '#0f172a',
+  },
+  saveProfileBtn: {
+    backgroundColor: '#2563eb',
+    paddingVertical: 11,
     borderRadius: 8,
     alignItems: 'center',
+    marginTop: 10,
+    marginBottom: 8,
   },
-  logoutBtnText: {
+  saveProfileBtnText: {
+    color: '#ffffff',
     fontSize: 12,
     fontWeight: '700',
-    color: '#dc2626',
     letterSpacing: 0.5,
+  },
+  errorText: {
+    color: '#ef4444',
+    fontSize: 11,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  supportCard: {
+    backgroundColor: '#f8fafc',
+    borderRadius: 10,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    marginBottom: 10,
+  },
+  supportLabel: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#2563eb',
+    letterSpacing: 0.5,
+    marginBottom: 2,
+  },
+  supportValue: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  supportSub: {
+    fontSize: 11,
+    color: '#64748b',
+    marginTop: 2,
+  },
+  dismissBtn: {
+    backgroundColor: '#0f172a',
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  dismissBtnText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  certItem: {
+    flexDirection: 'row',
+    gap: 12,
+    backgroundColor: '#f8fafc',
+    borderRadius: 10,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    marginBottom: 10,
+  },
+  certIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#eff6ff',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  certEmoji: {
+    fontSize: 18,
+  },
+  certTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0f172a',
+    marginBottom: 2,
+  },
+  certDesc: {
+    fontSize: 10,
+    color: '#64748b',
+    lineHeight: 15,
   },
 });

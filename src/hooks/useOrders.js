@@ -1,43 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import OrderService from '../../services/orderService';
-import { cartKeys } from './useCartQuery';
-import { serviceKeys } from './useServices';
-
 import { useAuth } from '../../context/AuthContext';
 
-export const orderKeys = {
-  all: ['orders'],
-  lists: () => [...orderKeys.all, 'list'],
-  list: (userId, params) => [
-    ...orderKeys.lists(),
-    userId || 'current',
-    params || {},
-  ],
-  details: () => [...orderKeys.all, 'detail'],
-  detail: (id) => [...orderKeys.details(), id],
-};
-
-/**
- * Fetch orders for an individual user with TanStack Query.
- * Supports:
- *   useOrders() - automatically uses current authenticated user
- *   useOrders(userId)
- *   useOrders({ userId, select, params, enabled, ...options })
- *   useOrders(userId, { select, params, enabled, ...options })
- *
- * @param {string|Object} [userIdOrOptions] - User ID string or options object
- * @param {Object} [maybeOptions] - Options when first arg is userId
- */
+// Get user orders
 export function useOrders(userIdOrOptions = {}, maybeOptions = {}) {
-  let authContext = null;
-  try {
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    authContext = useAuth();
-  } catch (e) {
-    // In case hook is used outside of AuthProvider
-  }
-
-  const currentUser = authContext?.user;
+  const { user: currentUser, isAuthenticated } = useAuth();
   let targetUserId;
   let options;
 
@@ -53,71 +20,67 @@ export function useOrders(userIdOrOptions = {}, maybeOptions = {}) {
   }
 
   const {
-    select,
     params,
     enabled,
-    staleTime = 1000 * 30, // 30s fresh: instant cache, background refresh when needed
+    staleTime = 60000,
     ...restOptions
   } = options;
 
-  const isEnabled = enabled !== undefined ? enabled : Boolean(targetUserId);
+  const isEnabled = enabled !== undefined ? enabled : Boolean(targetUserId && isAuthenticated);
 
   return useQuery({
-    queryKey: orderKeys.list(targetUserId, params),
+    queryKey: ['orders', targetUserId, params],
     queryFn: () => OrderService.getOrders(targetUserId, params),
     enabled: isEnabled,
     staleTime,
-    select,
     ...restOptions,
   });
 }
 
-/**
- * Fetch single order details with TanStack Query
- */
+// Get single order details
 export function useOrderDetails(id, options = {}) {
   return useQuery({
-    queryKey: orderKeys.detail(id),
+    queryKey: ['order', id],
     queryFn: () => OrderService.getOrderById(id),
-    enabled: Boolean(id),
-    staleTime: 1000 * 60, // 1 minute: fast cache, background refresh for delivery updates
+    enabled: !!id,
+    staleTime: 60000,
     ...options,
   });
 }
 
-/**
- * Mutation to create an order
- */
-export function useCreateOrderMutation() {
+// Create order
+export function useCreateOrder() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: (orderPayload) => OrderService.createOrder(orderPayload),
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: orderKeys.all });
-      queryClient.invalidateQueries({ queryKey: cartKeys.all });
-      queryClient.invalidateQueries({ queryKey: serviceKeys.all });
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
+      queryClient.invalidateQueries({ queryKey: ['cart'] });
+      queryClient.invalidateQueries({ queryKey: ['services'] });
     },
-    onError: (err) => {
-      // If order placement fails (e.g. out of stock or inventory depleted),
-      // immediately refresh cart and catalog queries to sync real-time stock
-      queryClient.invalidateQueries({ queryKey: cartKeys.all });
-      queryClient.invalidateQueries({ queryKey: serviceKeys.all });
+    onError: () => {
+      queryClient.invalidateQueries({ queryKey: ['cart'] });
+      queryClient.invalidateQueries({ queryKey: ['services'] });
     },
   });
 }
 
-/**
- * Mutation to cancel an order
- */
-export function useCancelOrderMutation() {
+// Cancel order
+export function useCancelOrder() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: ({ id, reason }) => OrderService.cancelOrder(id, reason),
-    onSuccess: (data, variables) => {
-      queryClient.invalidateQueries({ queryKey: orderKeys.detail(variables.id) });
-      queryClient.invalidateQueries({ queryKey: orderKeys.lists() });
+    onSuccess: (_, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ['order', id] });
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
     },
   });
 }
+
+// Compatibility aliases
+export const useCreateOrderMutation = useCreateOrder;
+export const useCancelOrderMutation = useCancelOrder;
 
 export default useOrders;

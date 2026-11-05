@@ -32,9 +32,16 @@ import {
   BoltIcon,
 } from '../components/Icons';
 
-export default function AddressScreen({ onBack, onSelectAddress }) {
-  const { user } = useAuth();
-  const { data: fetchedAddresses, isLoading: loading, refetch } = useAddresses();
+export default function AddressScreen({
+  navigation,
+  onBack: propOnBack,
+  onSelectAddress,
+  onNavigateToAuth: propOnNavigateToAuth,
+}) {
+  const onBack = propOnBack || (() => navigation?.goBack());
+  const onNavigateToAuth = propOnNavigateToAuth || ((screen) => navigation?.navigate(screen === 'signup' ? 'SignUp' : 'Login'));
+  const { user, isAuthenticated } = useAuth();
+  const { data: fetchedAddresses, isLoading: loading, error: queryError, refetch } = useAddresses();
   const addresses = Array.isArray(fetchedAddresses) ? fetchedAddresses : [];
 
   const createAddressMutation = useCreateAddressMutation();
@@ -330,6 +337,42 @@ export default function AddressScreen({ onBack, onSelectAddress }) {
         <View style={styles.centerContainer}>
           <ActivityIndicator size="large" color="#2563eb" />
           <Text style={styles.loadingText}>Fetching saved addresses...</Text>
+        </View>
+      ) : !isAuthenticated ? (
+        <View style={styles.emptyContainer}>
+          <View style={styles.emptyIconCircle}>
+            <Text style={{ fontSize: 32 }}>🔒</Text>
+          </View>
+          <Text style={styles.emptyTitle}>Sign In to Manage Addresses</Text>
+          <Text style={styles.emptySubtitle}>
+            Please sign in to your contractor account to view and manage your saved site delivery and warehouse addresses.
+          </Text>
+          {onNavigateToAuth && (
+            <TouchableOpacity
+              style={styles.primaryAddBtn}
+              activeOpacity={0.85}
+              onPress={() => onNavigateToAuth('login')}
+            >
+              <BoltIcon size={16} color="#ffffff" />
+              <Text style={styles.primaryAddBtnText}>SIGN IN TO ACCOUNT</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      ) : queryError && addresses.length === 0 ? (
+        <View style={styles.emptyContainer}>
+          <Text style={{ fontSize: 36, marginBottom: 12 }}>⚠️</Text>
+          <Text style={styles.emptyTitle}>Unable to Load Addresses</Text>
+          <Text style={styles.emptySubtitle}>
+            {queryError.message || 'Failed to connect to address service'}
+          </Text>
+          <TouchableOpacity
+            style={styles.primaryAddBtn}
+            activeOpacity={0.85}
+            onPress={() => refetch()}
+          >
+            <BoltIcon size={16} color="#ffffff" />
+            <Text style={styles.primaryAddBtnText}>RETRY</Text>
+          </TouchableOpacity>
         </View>
       ) : addresses.length === 0 ? (
         <View style={styles.emptyContainer}>

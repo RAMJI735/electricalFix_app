@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   StyleSheet,
   Text,
@@ -9,14 +9,18 @@ import {
   TextInput,
   ActivityIndicator,
   RefreshControl,
+  Image,
   Platform,
+  BackHandler,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
 import { ELECTRICAL_CATEGORIES } from '../constants/mockData';
-import { useCategories, serviceKeys } from '../hooks';
+import { useCategories } from '../hooks';
 import CategoryService from '../../services/categoryService';
 import { useCart } from '../context/CartContext';
 import {
+  ArrowLeftIcon,
   SearchIcon,
   StarIcon,
   BoltIcon,
@@ -30,17 +34,53 @@ import {
 const PAGE_SIZE = 4;
 
 export default function ShopScreen({
-  initialCategory = 'all',
+  route,
+  navigation,
+  initialCategory: propInitialCategory = 'all',
+  onBack: propOnBack,
   onAddToCart,
   onSelectService,
   onNavigateToCart,
 }) {
+  const currentCategory = route?.params?.categoryId || route?.params?.category || propInitialCategory || 'all';
   const queryClient = useQueryClient();
   const { isInCart } = useCart();
 
-  const [selectedCategory, setSelectedCategory] = useState(initialCategory);
+  const handleBack = useCallback(() => {
+    if (propOnBack) {
+      propOnBack();
+    } else if (navigation?.jumpTo) {
+      navigation.jumpTo('Home');
+    } else if (navigation?.navigate) {
+      navigation.navigate('Home');
+    }
+  }, [propOnBack, navigation]);
+
+  useFocusEffect(
+    useCallback(() => {
+      const onBackPress = () => {
+        handleBack();
+        return true;
+      };
+
+      const subscription = BackHandler.addEventListener(
+        'hardwareBackPress',
+        onBackPress
+      );
+
+      return () => subscription.remove();
+    }, [handleBack])
+  );
+
+  const [selectedCategory, setSelectedCategory] = useState(currentCategory);
+  const [prevInitialCategory, setPrevInitialCategory] = useState(currentCategory);
+
+  if (currentCategory !== prevInitialCategory) {
+    setPrevInitialCategory(currentCategory);
+    setSelectedCategory(currentCategory);
+  }
+
   const [searchQuery, setSearchQuery] = useState('');
-  const [categories, setCategories] = useState(ELECTRICAL_CATEGORIES);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [loadingItems, setLoadingItems] = useState(true);
@@ -56,26 +96,19 @@ export default function ShopScreen({
     refetch: refetchCategories,
   } = useCategories();
 
-  useEffect(() => {
-    setSelectedCategory(initialCategory || 'all');
-  }, [initialCategory]);
-
-  useEffect(() => {
+  const categories = useMemo(() => {
     if (categoryData?.length) {
-      const formattedCategories = categoryData.map((category) => ({
-        id: category._id || category.id,
-        name: category.categoryName || category.name,
-        icon: category.icon || '⚡',
-      }));
-
-      setCategories([
+      return [
         { id: 'all', name: 'All Products', icon: '⚡' },
-        ...formattedCategories,
-      ]);
-    } else if (!loadingCategories) {
-      setCategories(ELECTRICAL_CATEGORIES);
+        ...categoryData.map((category) => ({
+          id: category._id || category.id,
+          name: category.categoryName || category.name,
+          icon: category.icon || '⚡',
+        })),
+      ];
     }
-  }, [categoryData, loadingCategories]);
+    return ELECTRICAL_CATEGORIES;
+  }, [categoryData]);
 
   const loadPage = useCallback(
     async (pageToLoad = 1, isRefresh = false) => {
@@ -94,7 +127,7 @@ export default function ShopScreen({
           categoryId: selectedCategory || 'all',
         };
 
-        const queryKey = serviceKeys.paginated(queryParams);
+        const queryKey = ['services', 'paginated', queryParams];
 
         if (isRefresh) {
           await queryClient.invalidateQueries({ queryKey });
@@ -117,7 +150,15 @@ export default function ShopScreen({
         );
 
         const formattedItems = backendItems.map((item) => {
-          const price = item.price ?? 499;
+          const price = Number(item.price) || 0;
+          const origPrice =
+            Number(item.originalPrice) && Number(item.originalPrice) > price
+              ? Number(item.originalPrice)
+              : Number(item.effectiveOriginalPrice) || Math.round(price * 1.25);
+          const discount =
+            origPrice > price
+              ? Math.round(((origPrice - price) / origPrice) * 100)
+              : 0;
 
           return {
             ...item,
@@ -126,23 +167,32 @@ export default function ShopScreen({
               item.serviceName ||
               item.productName ||
               item.name ||
-              'Unnamed Product',
+              'Electrical Product',
             brand: item.brand || 'VOLTLINE',
             model: item.model || '',
             spec: item.estimated_time
-              ? `⏱ ${item.estimated_time} • Warranty: ${item.warranty || '90 Days'
-              }`
+              ? `⏱ ${item.estimated_time} • Warranty: ${item.warranty || '90 Days'}`
               : item.description ||
-              item.spec ||
-              'Certified Electrical Equipment',
+                item.spec ||
+                'Certified Electrical Equipment',
             price,
-            originalPrice: Math.round(price * 1.25),
-            rating: 4.8,
-            reviews: 58,
+            originalPrice: origPrice,
+            discountPercentage: discount,
+            rating: typeof item.rating === 'number' ? item.rating : 4.8,
+            reviews:
+              typeof item.reviewsCount === 'number'
+                ? item.reviewsCount
+                : item.reviews || 48,
             badge:
-              item.type === 'service'
-                ? 'SERVICE'
-                : 'VERIFIED',
+              item.badge ||
+              (item.type === 'service' ? 'SERVICE' : 'VERIFIED'),
+            inStock:
+              item.inStock !== false &&
+              (item.stock === undefined || item.stock > 0),
+            image:
+              item.image ||
+              (Array.isArray(item.images) ? item.images[0] : '') ||
+              '',
             category:
               item.category?._id ||
               item.category ||
@@ -200,7 +250,15 @@ export default function ShopScreen({
   );
 
   useEffect(() => {
-    loadPage(1);
+    let isMounted = true;
+    (async () => {
+      if (isMounted) {
+        await loadPage(1);
+      }
+    })();
+    return () => {
+      isMounted = false;
+    };
   }, [loadPage]);
 
   const onRefresh = async () => {
@@ -242,6 +300,7 @@ export default function ShopScreen({
     const productId = product._id || product.id;
     const isAdding = addingProductId === productId;
     const inCart = isInCart(product);
+    const isAvailable = product.inStock !== false;
 
     return (
       <TouchableOpacity
@@ -249,25 +308,45 @@ export default function ShopScreen({
         activeOpacity={0.88}
         onPress={() => onSelectService?.(product)}
       >
-        <View style={styles.cardTop}>
-          <View style={styles.brandRow}>
-            <Text style={styles.brandText}>
-              {(product.brand || 'VOLTLINE').toUpperCase()}
-            </Text>
+        {/* Product Media with Badges */}
+        <View style={styles.cardImageContainer}>
+          {product.image ? (
+            <Image
+              source={{ uri: product.image }}
+              style={styles.cardImage}
+              resizeMode="contain"
+            />
+          ) : (
+            <View style={styles.cardImagePlaceholder}>
+              <BoltIcon size={32} color="#94a3b8" />
+            </View>
+          )}
 
+          <View style={styles.cardHeaderOverlay}>
             <View style={styles.badgePill}>
-              <Text style={styles.badgePillText}>
-                {product.badge}
+              <Text style={styles.badgePillText}>{product.badge}</Text>
+            </View>
+            <View style={styles.ratingBadge}>
+              <StarIcon size={12} color="#f59e0b" />
+              <Text style={styles.ratingText}>
+                {product.rating} ({product.reviews})
               </Text>
             </View>
           </View>
 
-          <View style={styles.ratingBadge}>
-            <StarIcon size={12} color="#f59e0b" />
-            <Text style={styles.ratingText}>
-              {product.rating} ({product.reviews})
-            </Text>
-          </View>
+          {product.discountPercentage > 0 && (
+            <View style={styles.discountTag}>
+              <Text style={styles.discountTagText}>
+                {product.discountPercentage}% OFF
+              </Text>
+            </View>
+          )}
+        </View>
+
+        <View style={styles.brandRow}>
+          <Text style={styles.brandText}>
+            {(product.brand || 'VOLTLINE').toUpperCase()}
+          </Text>
         </View>
 
         <Text style={styles.productName}>{product.name}</Text>
@@ -284,51 +363,56 @@ export default function ShopScreen({
           <View>
             <View style={styles.priceRow}>
               <Text style={styles.price}>₹{product.price}</Text>
-              <Text style={styles.origPrice}>
-                ₹{product.originalPrice}
-              </Text>
+              {product.originalPrice > product.price && (
+                <Text style={styles.origPrice}>₹{product.originalPrice}</Text>
+              )}
             </View>
 
             <Text style={styles.taxText}>
-              Inc. 18% GST • In Stock
+              {isAvailable ? 'Inc. 18% GST • In Stock' : '⚠️ Currently Out of Stock'}
             </Text>
           </View>
 
-          <TouchableOpacity
-            style={[
-              styles.addToCartBtn,
-              inCart && styles.goToCartBtn,
-              isAdding && styles.addToCartBtnLoading,
-            ]}
-            activeOpacity={0.8}
-            disabled={isAdding}
-            onPress={(event) => {
-              event?.stopPropagation?.();
-
-              if (inCart) {
-                onNavigateToCart?.();
-              } else {
-                handleAddToCartClick(product);
-              }
-            }}
-          >
-            {isAdding ? (
-              <View style={styles.loadingButtonContent}>
-                <ActivityIndicator size="small" color="#ffffff" />
-                <Text style={styles.addToCartText}>ADDING...</Text>
-              </View>
-            ) : inCart ? (
-              <>
-                <CartIcon size={14} color="#ffffff" focused />
-                <Text style={styles.goToCartText}>GO TO CART</Text>
-              </>
-            ) : (
-              <>
-                <BoltIcon size={14} color="#ffffff" />
-                <Text style={styles.addToCartText}>ADD TO CART</Text>
-              </>
-            )}
-          </TouchableOpacity>
+          {!isAvailable ? (
+            <View style={styles.outOfStockBtn}>
+              <Text style={styles.outOfStockText}>UNAVAILABLE</Text>
+            </View>
+          ) : (
+            <TouchableOpacity
+              style={[
+                styles.addToCartBtn,
+                inCart && styles.goToCartBtn,
+                isAdding && styles.addToCartBtnLoading,
+              ]}
+              activeOpacity={0.8}
+              disabled={isAdding}
+              onPress={(event) => {
+                event?.stopPropagation?.();
+                if (inCart) {
+                  onNavigateToCart?.();
+                } else {
+                  handleAddToCartClick(product);
+                }
+              }}
+            >
+              {isAdding ? (
+                <View style={styles.loadingButtonContent}>
+                  <ActivityIndicator size="small" color="#ffffff" />
+                  <Text style={styles.addToCartText}>ADDING...</Text>
+                </View>
+              ) : inCart ? (
+                <>
+                  <CartIcon size={14} color="#ffffff" focused />
+                  <Text style={styles.goToCartText}>GO TO CART</Text>
+                </>
+              ) : (
+                <>
+                  <BoltIcon size={14} color="#ffffff" />
+                  <Text style={styles.addToCartText}>ADD TO CART</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          )}
         </View>
       </TouchableOpacity>
     );
@@ -364,9 +448,18 @@ export default function ShopScreen({
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <View>
-          <Text style={styles.eyebrow}>CATALOG & INVENTORY</Text>
-          <Text style={styles.title}>Electrical Shop</Text>
+        <View style={styles.headerLeft}>
+          <TouchableOpacity
+            style={styles.backBtn}
+            activeOpacity={0.7}
+            onPress={handleBack}
+          >
+            <ArrowLeftIcon size={18} color="#0f172a" />
+          </TouchableOpacity>
+          <View>
+            <Text style={styles.eyebrow}>CATALOG & INVENTORY</Text>
+            <Text style={styles.title}>Electrical Shop</Text>
+          </View>
         </View>
 
         <View style={styles.itemCountBadge}>
@@ -517,6 +610,22 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 10,
   },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  backBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: '#ffffff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    marginRight: 10,
+  },
   eyebrow: {
     fontSize: 10,
     fontWeight: '700',
@@ -610,7 +719,7 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: '#ffffff',
     borderRadius: 14,
-    padding: 16,
+    padding: 14,
     borderWidth: 1,
     borderColor: '#e2e8f0',
     shadowColor: '#0f172a',
@@ -618,6 +727,66 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.03,
     shadowRadius: 6,
     elevation: 1,
+  },
+  cardImageContainer: {
+    width: '100%',
+    height: 140,
+    backgroundColor: '#f8fafc',
+    borderRadius: 10,
+    overflow: 'hidden',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 10,
+    position: 'relative',
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+  },
+  cardImage: {
+    width: '100%',
+    height: '100%',
+  },
+  cardImagePlaceholder: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f8fafc',
+  },
+  cardHeaderOverlay: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    right: 8,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  discountTag: {
+    position: 'absolute',
+    bottom: 8,
+    left: 8,
+    backgroundColor: '#16a34a',
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+    borderRadius: 4,
+  },
+  discountTagText: {
+    color: '#ffffff',
+    fontSize: 9,
+    fontWeight: '800',
+  },
+  outOfStockBtn: {
+    backgroundColor: '#f1f5f9',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  outOfStockText: {
+    color: '#94a3b8',
+    fontSize: 10,
+    fontWeight: '700',
   },
   cardTop: {
     flexDirection: 'row',

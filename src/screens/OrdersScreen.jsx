@@ -22,7 +22,17 @@ import {
   ChevronRightIcon,
 } from '../components/Icons';
 
-export default function OrdersScreen({ onBack, onExploreShop, onSelectOrder, onNavigateToAuth }) {
+export default function OrdersScreen({
+  navigation,
+  onBack: propOnBack,
+  onExploreShop: propOnExploreShop,
+  onSelectOrder: propOnSelectOrder,
+  onNavigateToAuth: propOnNavigateToAuth,
+}) {
+  const onBack = propOnBack || (() => navigation?.goBack());
+  const onExploreShop = propOnExploreShop || (() => navigation?.navigate('Shop'));
+  const onSelectOrder = propOnSelectOrder || ((order) => navigation?.navigate('OrderDetail', { orderId: order._id }));
+  const onNavigateToAuth = propOnNavigateToAuth || ((screen) => navigation?.navigate(screen === 'signup' ? 'SignUp' : 'Login'));
   const { user, isAuthenticated } = useAuth();
   const userId = user?._id || user?.id;
 

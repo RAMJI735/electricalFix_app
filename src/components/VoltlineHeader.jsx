@@ -1,19 +1,23 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { useSettings } from '../hooks';
 
 export default function VoltlineHeader({ mode = 'signup' }) {
   const isLogin = mode === 'login';
+  const { data: settings } = useSettings();
+  const storeName = settings?.store?.name || 'VOLTLINE';
+  const storeTagline = settings?.store?.tagline || 'ELECTRICAL SOLUTIONS';
 
   return (
     <View style={styles.container}>
       <View style={styles.topRow}>
         <View style={styles.brandContainer}>
           <View style={styles.logoBadge}>
-            <Text style={styles.logoText}>E+</Text>
+            <Text style={styles.logoText}>{storeName.slice(0, 2).toUpperCase()}</Text>
           </View>
           <View style={styles.brandTextContainer}>
-            <Text style={styles.brandTitle}>VOLTLINE</Text>
-            <Text style={styles.brandSubtitle}>ELECTRONIC SERVICES</Text>
+            <Text style={styles.brandTitle}>{storeName.toUpperCase()}</Text>
+            <Text style={styles.brandSubtitle}>{storeTagline.toUpperCase()}</Text>
           </View>
         </View>
 

@@ -1,89 +1,86 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import AddressService from '../../services/addressService';
+import { useAuth } from '../../context/AuthContext';
 
-export const addressKeys = {
-  all: ['addresses'],
-  lists: () => [...addressKeys.all, 'list'],
-  details: () => [...addressKeys.all, 'detail'],
-  detail: (id) => [...addressKeys.details(), id],
-};
-
-/**
- * Fetch all saved delivery addresses with TanStack Query
- */
+// Get saved delivery addresses
 export function useAddresses(options = {}) {
+  const { user: currentUser, isAuthenticated } = useAuth();
+  const targetUserId = options.userId || currentUser?._id || currentUser?.id;
+  const isEnabled = options.enabled !== undefined ? options.enabled : Boolean(isAuthenticated && targetUserId);
+
   return useQuery({
-    queryKey: addressKeys.lists(),
-    queryFn: () => AddressService.getAddresses(),
-    staleTime: 1000 * 60 * 2, // 2 minutes: instant cache, background refresh if modified
+    queryKey: ['addresses', targetUserId],
+    queryFn: () => AddressService.getAddresses(targetUserId),
+    enabled: isEnabled,
+    staleTime: 60000,
     ...options,
   });
 }
 
-/**
- * Fetch single address by ID with TanStack Query
- */
+// Get single address by ID
 export function useAddress(id, options = {}) {
   return useQuery({
-    queryKey: addressKeys.detail(id),
+    queryKey: ['address', id],
     queryFn: () => AddressService.getAddressById(id),
-    enabled: Boolean(id),
-    staleTime: 1000 * 60 * 2, // 2 minutes: instant cache, background refresh if modified
+    enabled: !!id,
+    staleTime: 60000,
     ...options,
   });
 }
 
-/**
- * Mutation to create an address
- */
-export function useCreateAddressMutation() {
+// Create address
+export function useCreateAddress() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: (addressData) => AddressService.createAddress(addressData),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: addressKeys.all });
+      queryClient.invalidateQueries({ queryKey: ['addresses'] });
     },
   });
 }
 
-/**
- * Mutation to update an address
- */
-export function useUpdateAddressMutation() {
+// Update address
+export function useUpdateAddress() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: ({ id, data }) => AddressService.updateAddress(id, data),
-    onSuccess: (result, variables) => {
-      queryClient.invalidateQueries({ queryKey: addressKeys.detail(variables.id) });
-      queryClient.invalidateQueries({ queryKey: addressKeys.lists() });
+    onSuccess: (_, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ['addresses'] });
+      queryClient.invalidateQueries({ queryKey: ['address', id] });
     },
   });
 }
 
-/**
- * Mutation to delete an address
- */
-export function useDeleteAddressMutation() {
+// Delete address
+export function useDeleteAddress() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: (id) => AddressService.deleteAddress(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: addressKeys.all });
+      queryClient.invalidateQueries({ queryKey: ['addresses'] });
     },
   });
 }
 
-/**
- * Mutation to set default address
- */
-export function useSetDefaultAddressMutation() {
+// Set default address
+export function useSetDefaultAddress() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: (id) => AddressService.setDefaultAddress(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: addressKeys.all });
+      queryClient.invalidateQueries({ queryKey: ['addresses'] });
     },
   });
 }
+
+// Compatibility aliases
+export const useCreateAddressMutation = useCreateAddress;
+export const useUpdateAddressMutation = useUpdateAddress;
+export const useDeleteAddressMutation = useDeleteAddress;
+export const useSetDefaultAddressMutation = useSetDefaultAddress;
 
 export default useAddresses;

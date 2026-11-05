@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AuthService from '../services/authService';
+import { queryClient } from '../src/lib/queryClient';
 
 const AuthContext = createContext();
 
@@ -41,6 +42,10 @@ export function AuthProvider({ children }) {
       const result = await AuthService.login({ email, password });
       setUser(result.user);
       setToken(result.token);
+      // Invalidate relevant queries to fetch fresh user-specific data
+      try {
+        queryClient.invalidateQueries();
+      } catch (e) {}
       return result;
     } catch (err) {
       setAuthError(err.message);
@@ -85,9 +90,46 @@ export function AuthProvider({ children }) {
     try {
       await AuthService.logout();
     } finally {
+      // Clear all cached React Query state so old data is immediately wiped
+      try {
+        queryClient.clear();
+      } catch (e) {}
       setUser(null);
       setToken(null);
       setIsLoading(false);
+    }
+  };
+
+  /**
+   * Update profile
+   */
+  const updateProfile = async (profileData) => {
+    setIsLoading(true);
+    setAuthError(null);
+    try {
+      const updatedUser = await AuthService.updateProfile(profileData);
+      setUser(updatedUser);
+      return updatedUser;
+    } catch (err) {
+      setAuthError(err.message);
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  /**
+   * Refresh profile
+   */
+  const refreshProfile = async () => {
+    try {
+      const latestUser = await AuthService.getProfile();
+      if (latestUser) {
+        setUser(latestUser);
+      }
+      return latestUser;
+    } catch (err) {
+      console.warn('Profile refresh failed:', err);
     }
   };
 
@@ -102,6 +144,8 @@ export function AuthProvider({ children }) {
     login,
     signup,
     logout,
+    updateProfile,
+    refreshProfile,
     clearError,
   };
 
