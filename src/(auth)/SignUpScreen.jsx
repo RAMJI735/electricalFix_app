@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
   Text,
@@ -32,6 +32,15 @@ export default function SignUpScreen({
   const [localError, setLocalError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Email verification state
+  const [isEmailVerified, setIsEmailVerified] = useState(false);
+  const [otpSent, setOtpSent] = useState(false);
+  const [otp, setOtp] = useState('');
+  const [otpSending, setOtpSending] = useState(false);
+  const [otpVerifying, setOtpVerifying] = useState(false);
+  const [otpSuccessMessage, setOtpSuccessMessage] = useState('');
+  const [otpCountdown, setOtpCountdown] = useState(0);
+
   // Address fields
   const [isAddressExpanded, setIsAddressExpanded] = useState(false);
   const [street, setStreet] = useState('');
@@ -41,9 +50,64 @@ export default function SignUpScreen({
   const [country, setCountry] = useState('India');
   const [isDefaultAddress, setIsDefaultAddress] = useState(true);
 
-  const { signup } = useAuth();
+  const { signup, sendOtp, verifyOtp } = useAuth();
 
   const AVATAR_OPTIONS = ['⚡', '👷', '🏢', '🔌', '🛠️', '💡'];
+
+  useEffect(() => {
+    let timer;
+    if (otpCountdown > 0) {
+      timer = setInterval(() => {
+        setOtpCountdown((prev) => prev - 1);
+      }, 1000);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [otpCountdown]);
+
+  const handleSendOtp = async () => {
+    setLocalError('');
+    setOtpSuccessMessage('');
+    const trimmedEmail = email.trim();
+    const pattern = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,4}$/;
+    if (!trimmedEmail || !pattern.test(trimmedEmail)) {
+      setLocalError('Please enter a valid email address first');
+      return;
+    }
+
+    setOtpSending(true);
+    try {
+      const res = await sendOtp(trimmedEmail);
+      setOtpSent(true);
+      setOtpCountdown(60);
+      setOtpSuccessMessage(res?.message || 'OTP sent successfully to your email');
+    } catch (err) {
+      setLocalError(err.message || 'Failed to send OTP. Please try again.');
+    } finally {
+      setOtpSending(false);
+    }
+  };
+
+  const handleVerifyOtp = async () => {
+    setLocalError('');
+    setOtpSuccessMessage('');
+    if (!otp.trim()) {
+      setLocalError('Please enter the OTP sent to your email');
+      return;
+    }
+
+    setOtpVerifying(true);
+    try {
+      const res = await verifyOtp(email.trim(), otp.trim());
+      setIsEmailVerified(true);
+      setOtpSuccessMessage(res?.message || 'Email verified successfully! ✓');
+    } catch (err) {
+      setLocalError(err.message || 'Invalid OTP. Please try again.');
+    } finally {
+      setOtpVerifying(false);
+    }
+  };
 
   const handleSignUp = async () => {
     setLocalError('');
@@ -52,12 +116,19 @@ export default function SignUpScreen({
       return;
     }
 
-    let pattern = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,4}$/;
+    const pattern = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,4}$/;
     if (!pattern.test(email.trim())) {
       setLocalError('Please enter a valid email address');
       return;
     }
 
+    if (!isEmailVerified) {
+      setLocalError('Please verify your email address to continue.');
+      if (!otpSent) {
+        handleSendOtp();
+      }
+      return;
+    }
 
     if (!password || password.length < 6) {
       setLocalError('Password must be at least 6 characters');
@@ -151,6 +222,13 @@ export default function SignUpScreen({
             </View>
           )}
 
+          {/* Success Banner */}
+          {!!otpSuccessMessage && (
+            <View style={styles.successBanner}>
+              <Text style={styles.successText}>{otpSuccessMessage}</Text>
+            </View>
+          )}
+
           {/* Main Account Details Form */}
           <View style={styles.formCard}>
             {/* Full Name */}
@@ -172,22 +250,128 @@ export default function SignUpScreen({
 
             {/* Email Address */}
             <View style={styles.fieldGroup}>
-              <Text style={styles.label}>Email Address</Text>
-              <View style={styles.inputContainer}>
+              <View style={styles.labelRow}>
+                <Text style={styles.label}>Email Address</Text>
+                {isEmailVerified ? (
+                  <View style={styles.verifiedBadge}>
+                    <Text style={styles.verifiedBadgeText}>✓ Verified</Text>
+                  </View>
+                ) : (
+                  <Text style={styles.unverifiedBadgeText}>Verification required</Text>
+                )}
+              </View>
+              <View style={[styles.inputContainer, styles.inputRowContainer]}>
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, { flex: 1 }]}
                   placeholder="name@example.com"
                   placeholderTextColor="#94a3b8"
                   value={email}
                   onChangeText={(text) => {
                     setEmail(text);
+                    if (isEmailVerified) setIsEmailVerified(false);
+                    if (otpSent) setOtpSent(false);
+                    if (otp) setOtp('');
                     if (localError) setLocalError('');
+                    if (otpSuccessMessage) setOtpSuccessMessage('');
                   }}
                   keyboardType="email-address"
                   autoCapitalize="none"
+                  editable={!isEmailVerified}
                 />
+                {!isEmailVerified ? (
+                  <TouchableOpacity
+                    style={[
+                      styles.sendOtpBtn,
+                      (otpSending || otpCountdown > 0 || !email.trim()) && styles.sendOtpBtnDisabled,
+                    ]}
+                    onPress={handleSendOtp}
+                    disabled={otpSending || otpCountdown > 0 || !email.trim()}
+                    activeOpacity={0.7}
+                  >
+                    {otpSending ? (
+                      <ActivityIndicator size="small" color="#2563eb" />
+                    ) : (
+                      <Text
+                        style={[
+                          styles.sendOtpBtnText,
+                          (otpSending || otpCountdown > 0 || !email.trim()) && styles.sendOtpBtnTextDisabled,
+                        ]}
+                      >
+                        {otpSent ? (otpCountdown > 0 ? `${otpCountdown}s` : 'Resend') : 'Send OTP'}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity
+                    onPress={() => {
+                      setIsEmailVerified(false);
+                      setOtpSent(false);
+                      setOtp('');
+                      setOtpSuccessMessage('');
+                    }}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Text style={styles.changeEmailText}>Change</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             </View>
+
+            {/* OTP Input Section */}
+            {otpSent && !isEmailVerified && (
+              <View style={styles.otpCard}>
+                <View style={styles.otpCardHeader}>
+                  <Text style={styles.otpCardTitle}>Email Verification Code</Text>
+                  <Text style={styles.otpCardSubtitle}>
+                    Enter the code sent to {email}
+                  </Text>
+                </View>
+                <View style={styles.otpInputRow}>
+                  <View style={[styles.inputContainer, styles.otpInputContainer]}>
+                    <TextInput
+                      style={styles.otpInput}
+                      placeholder="Enter OTP"
+                      placeholderTextColor="#94a3b8"
+                      value={otp}
+                      onChangeText={(text) => {
+                        setOtp(text);
+                        if (localError) setLocalError('');
+                      }}
+                      keyboardType="number-pad"
+                      maxLength={8}
+                    />
+                  </View>
+                  <TouchableOpacity
+                    style={[
+                      styles.verifyOtpBtn,
+                      (otpVerifying || !otp.trim()) && styles.verifyOtpBtnDisabled,
+                    ]}
+                    onPress={handleVerifyOtp}
+                    disabled={otpVerifying || !otp.trim()}
+                    activeOpacity={0.8}
+                  >
+                    {otpVerifying ? (
+                      <ActivityIndicator size="small" color="#ffffff" />
+                    ) : (
+                      <Text style={styles.verifyOtpBtnText}>Verify OTP</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+                {otpCountdown > 0 ? (
+                  <Text style={styles.otpTimerText}>
+                    Resend code in {otpCountdown}s
+                  </Text>
+                ) : (
+                  <TouchableOpacity
+                    onPress={handleSendOtp}
+                    disabled={otpSending}
+                    style={styles.otpResendLink}
+                  >
+                    <Text style={styles.otpResendLinkText}>{"Didn't receive OTP? Resend"}</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
 
             {/* Password */}
             <View style={styles.fieldGroup}>
@@ -640,5 +824,143 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#dc2626',
     fontWeight: '500',
+  },
+  successBanner: {
+    backgroundColor: '#f0fdf4',
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+  },
+  successText: {
+    fontSize: 13,
+    color: '#16a34a',
+    fontWeight: '600',
+  },
+  labelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  verifiedBadge: {
+    backgroundColor: '#dcfce7',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#86efac',
+  },
+  verifiedBadgeText: {
+    color: '#16a34a',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  unverifiedBadgeText: {
+    color: '#94a3b8',
+    fontSize: 11,
+    fontWeight: '500',
+  },
+  inputRowContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingRight: 6,
+  },
+  sendOtpBtn: {
+    backgroundColor: '#eff6ff',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+    marginLeft: 8,
+  },
+  sendOtpBtnDisabled: {
+    backgroundColor: '#f1f5f9',
+    borderColor: '#e2e8f0',
+  },
+  sendOtpBtnText: {
+    color: '#2563eb',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  sendOtpBtnTextDisabled: {
+    color: '#94a3b8',
+  },
+  changeEmailText: {
+    color: '#2563eb',
+    fontSize: 12,
+    fontWeight: '600',
+    paddingHorizontal: 8,
+  },
+  otpCard: {
+    backgroundColor: '#f8fafc',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    padding: 12,
+    marginBottom: 16,
+  },
+  otpCardHeader: {
+    marginBottom: 10,
+  },
+  otpCardTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0f172a',
+    marginBottom: 2,
+  },
+  otpCardSubtitle: {
+    fontSize: 12,
+    color: '#64748b',
+  },
+  otpInputRow: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  otpInputContainer: {
+    flex: 1,
+    height: 44,
+  },
+  otpInput: {
+    fontSize: 14,
+    color: '#0f172a',
+    letterSpacing: 2,
+    fontWeight: '600',
+  },
+  verifyOtpBtn: {
+    backgroundColor: '#16a34a',
+    height: 44,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  verifyOtpBtnDisabled: {
+    backgroundColor: '#94a3b8',
+    opacity: 0.6,
+  },
+  verifyOtpBtnText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  otpTimerText: {
+    fontSize: 12,
+    color: '#64748b',
+    textAlign: 'center',
+    marginTop: 2,
+  },
+  otpResendLink: {
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  otpResendLinkText: {
+    fontSize: 12,
+    color: '#2563eb',
+    fontWeight: '600',
   },
 });

@@ -1,20 +1,24 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View, Image } from 'react-native';
 import { useSettings } from '../hooks';
 
 export default function VoltlineHeader() {
   const { data: settings } = useSettings();
-  const storeName = settings?.storeName || settings?.store?.name || 'Voltline';
+  const storeName = settings?.storeName || settings?.store?.name || 'ElectricalFix';
 
   return (
     <View style={styles.container}>
       <View style={styles.brandContainer}>
         <View style={styles.logoBadge}>
-          <Text style={styles.logoText}>⚡</Text>
+          <Image
+            source={require('../../assets/logo.png')}
+            style={styles.logoImage}
+            resizeMode="cover"
+          />
         </View>
         <View style={styles.brandTextContainer}>
           <Text style={styles.brandTitle}>{storeName}</Text>
-          <Text style={styles.brandSubtitle}>Electrical Solutions</Text>
+          <Text style={styles.brandSubtitle}>Power in Motion</Text>
         </View>
       </View>
     </View>
@@ -31,21 +35,25 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   logoBadge: {
-    width: 42,
-    height: 42,
+    width: 44,
+    height: 44,
     borderRadius: 12,
-    backgroundColor: '#2563eb',
+    overflow: 'hidden',
+    backgroundColor: '#ffffff',
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#2563eb',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
-    elevation: 3,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  logoText: {
-    color: '#ffffff',
-    fontSize: 20,
+  logoImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 11,
   },
   brandTextContainer: {
     justifyContent: 'center',

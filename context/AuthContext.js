@@ -45,7 +45,7 @@ export function AuthProvider({ children }) {
       // Invalidate relevant queries to fetch fresh user-specific data
       try {
         queryClient.invalidateQueries();
-      } catch (e) {}
+      } catch (_e) {}
       return result;
     } catch (err) {
       setAuthError(err.message);
@@ -69,7 +69,7 @@ export function AuthProvider({ children }) {
         setUser(loginResult.user);
         setToken(loginResult.token);
         return loginResult;
-      } catch (autoLoginErr) {
+      } catch (_autoLoginErr) {
         // Even if auto-login fails, signup succeeded
         return result;
       }
@@ -93,7 +93,7 @@ export function AuthProvider({ children }) {
       // Clear all cached React Query state so old data is immediately wiped
       try {
         queryClient.clear();
-      } catch (e) {}
+      } catch (_e) {}
       setUser(null);
       setToken(null);
       setIsLoading(false);
@@ -133,6 +133,58 @@ export function AuthProvider({ children }) {
     }
   };
 
+  /**
+   * Send Email OTP
+   */
+  const sendOtp = async (email) => {
+    setAuthError(null);
+    try {
+      return await AuthService.sendOtp(email);
+    } catch (err) {
+      setAuthError(err.message);
+      throw err;
+    }
+  };
+
+  /**
+   * Verify Email OTP
+   */
+  const verifyOtp = async (email, otp) => {
+    setAuthError(null);
+    try {
+      return await AuthService.verifyOtp(email, otp);
+    } catch (err) {
+      setAuthError(err.message);
+      throw err;
+    }
+  };
+
+  /**
+   * Send Password Reset OTP
+   */
+  const sendResetPasswordOtp = async (email) => {
+    setAuthError(null);
+    try {
+      return await AuthService.sendResetPasswordOtp(email);
+    } catch (err) {
+      setAuthError(err.message);
+      throw err;
+    }
+  };
+
+  /**
+   * Reset Password with OTP
+   */
+  const resetPassword = async ({ email, otp, password }) => {
+    setAuthError(null);
+    try {
+      return await AuthService.resetPassword({ email, otp, password });
+    } catch (err) {
+      setAuthError(err.message);
+      throw err;
+    }
+  };
+
   const clearError = () => setAuthError(null);
 
   const value = {
@@ -143,6 +195,10 @@ export function AuthProvider({ children }) {
     authError,
     login,
     signup,
+    sendOtp,
+    verifyOtp,
+    sendResetPasswordOtp,
+    resetPassword,
     logout,
     updateProfile,
     refreshProfile,

@@ -496,11 +496,15 @@ export default function HomeScreen({
       <View style={styles.topBar}>
         <View style={styles.brandRow}>
           <View style={styles.brandBadge}>
-            <Text style={styles.brandBadgeText}>E+</Text>
+            <Image
+              source={require('../../assets/logo.png')}
+              style={styles.brandLogoImage}
+              resizeMode="cover"
+            />
           </View>
           <View>
-            <Text style={styles.brandTitle}>{storeName}</Text>
-            <Text style={styles.brandSubtitle}>{tagline}</Text>
+            <Text style={styles.brandTitle}>{storeName || 'ElectricalFix'}</Text>
+            <Text style={styles.brandSubtitle}>{tagline || 'Power in Motion'}</Text>
           </View>
         </View>
         {announcement?.enabled && (
@@ -812,17 +816,20 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   brandBadge: {
-    width: 42,
-    height: 42,
+    width: 44,
+    height: 44,
     borderRadius: 12,
-    backgroundColor: '#1d64f2',
+    overflow: 'hidden',
+    backgroundColor: '#ffffff',
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
   },
-  brandBadgeText: {
-    color: '#ffffff',
-    fontSize: 18,
-    fontWeight: 'bold',
+  brandLogoImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 11,
   },
   brandTitle: {
     fontSize: 15,

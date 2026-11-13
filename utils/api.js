@@ -1,144 +1,147 @@
+/* eslint-disable import/no-named-as-default-member */
 import axios from 'axios';
 import { Platform } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const FALLBACK_API_URL = 'https://ecom-backend-git-main-ramji735s-projects.vercel.app';
+const FALLBACK_API_URL =
+  'https://ecom-backend-git-main-ramji735s-projects.vercel.app';
 
 const getApiBaseUrl = () => {
+  // On web, always connect to current page's hostname on port 8000 for same-origin HttpOnly cookies.
+  if (
+    Platform.OS === 'web' &&
+    typeof window !== 'undefined' &&
+    window.location?.hostname
+  ) {
+    return `http://${window.location.hostname}:8000`;
+  }
+
   if (process.env.EXPO_PUBLIC_API_URL) {
     return process.env.EXPO_PUBLIC_API_URL;
   }
-  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.hostname) {
-    return `http://${window.location.hostname}:8000`;
-  }
+
   return FALLBACK_API_URL;
 };
 
+const baseURL = getApiBaseUrl();
+
+// Main API client (100% HttpOnly cookie based)
 export const api = axios.create({
-  baseURL: getApiBaseUrl(),
-  withCredentials: true,
-  timeout: 10000,
+  baseURL,
+  timeout: 15000,
   headers: {
     'Content-Type': 'application/json',
   },
+  withCredentials: true,
 });
 
-// In-memory active token
-let currentAuthToken = null;
+// Refresh token client (100% HttpOnly cookie based)
+const refreshApi = axios.create({
+  baseURL,
+  timeout: 15000,
+  withCredentials: true,
+});
 
-// Helper to get active token across tiers (Memory -> SessionStorage -> AsyncStorage on Native)
-export const getActiveToken = async () => {
-  if (currentAuthToken) return currentAuthToken;
+let refreshPromise = null;
+
+// Ensure NO access or refresh tokens ever remain in JavaScript storage (localStorage/sessionStorage)
+if (Platform.OS === 'web' && typeof window !== 'undefined') {
   try {
-    // 1. Web sessionStorage (token is strictly session-scoped on web)
-    if (typeof window !== 'undefined' && window.sessionStorage) {
-      const sessionTok =
-        window.sessionStorage.getItem('voltline_auth_token') ||
-        window.sessionStorage.getItem('token');
-      if (sessionTok) {
-        currentAuthToken = sessionTok;
-        return sessionTok;
-      }
-    }
-    // Purge any residual tokens in web localStorage
-    if (typeof window !== 'undefined' && window.localStorage) {
+    if (window.localStorage) {
       window.localStorage.removeItem('voltline_auth_token');
       window.localStorage.removeItem('token');
     }
-    // 2. Native mobile platforms (iOS / Android) only.
-    // On web, AsyncStorage polyfills to localStorage, so do NOT use it for tokens on web.
-    if (Platform.OS !== 'web') {
-      const pairs = await AsyncStorage.multiGet(['voltline_auth_token', 'token']).catch(() => []);
-      for (const [, val] of pairs) {
-        if (val) {
-          currentAuthToken = val;
-          return val;
-        }
-      }
+    if (window.sessionStorage) {
+      window.sessionStorage.removeItem('voltline_auth_token');
+      window.sessionStorage.removeItem('token');
     }
-  } catch (_e) {
-    // Ignore storage errors
-  }
+  } catch (_e) { }
+}
+
+// Token helper stubs kept for backwards compatibility (tokens live strictly in HttpOnly cookies)
+export const setAuthToken = (_token) => {
+  // No-op: Tokens are managed strictly via HttpOnly cookies and never stored in JavaScript
+};
+
+export const getActiveToken = async () => {
   return null;
 };
 
-// Helper to set authorization token dynamically (SessionStorage on Web, AsyncStorage on Native)
-export const setAuthToken = (token) => {
-  currentAuthToken = token || null;
-  if (token) {
-    api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-    try {
-      if (typeof window !== 'undefined') {
-        if (window.sessionStorage) {
-          window.sessionStorage.setItem('voltline_auth_token', token);
-          window.sessionStorage.setItem('token', token);
-        }
-        // Ensure token is NEVER saved in localStorage on web
-        if (window.localStorage) {
-          window.localStorage.removeItem('voltline_auth_token');
-          window.localStorage.removeItem('token');
-        }
-      }
-      // Only persist tokens in AsyncStorage on native mobile platforms (iOS / Android).
-      // On web, AsyncStorage maps directly to localStorage, so we do NOT write tokens to it.
-      if (Platform.OS !== 'web') {
-        AsyncStorage.multiSet([
-          ['voltline_auth_token', token],
-          ['token', token],
-        ]).catch(() => {});
-      }
-    } catch (_e) {}
-  } else {
-    delete api.defaults.headers.common['Authorization'];
-    try {
-      if (typeof window !== 'undefined') {
-        if (window.sessionStorage) {
-          window.sessionStorage.removeItem('voltline_auth_token');
-          window.sessionStorage.removeItem('token');
-        }
-        // Purge any legacy token from localStorage
-        if (window.localStorage) {
-          window.localStorage.removeItem('voltline_auth_token');
-          window.localStorage.removeItem('token');
-        }
-      }
-      if (Platform.OS !== 'web') {
-        AsyncStorage.multiRemove(['voltline_auth_token', 'token']).catch(() => {});
-      }
-    } catch (_e) {}
-  }
-};
 
-// Request interceptor to automatically attach authorization token to EVERY outgoing request
-api.interceptors.request.use(
-  async (config) => {
-    let token = currentAuthToken;
-    if (!token) {
-      token = await getActiveToken();
-    }
-    if (token) {
-      if (config.headers?.set) {
-        config.headers.set('Authorization', `Bearer ${token}`);
-      } else if (config.headers) {
-        config.headers['Authorization'] = `Bearer ${token}`;
-      }
-    }
-    return config;
-  },
-  (error) => Promise.reject(error)
-);
 
-// Response interceptor to format errors
+
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
-    const message =
-      error.response?.data?.message ||
-      error.response?.data?.error ||
-      error.message ||
-      'Network error. Please verify backend server is running.';
-    return Promise.reject(new Error(message));
+
+  async (error) => {
+    const originalRequest = error.config;
+
+    if (!originalRequest) {
+      return Promise.reject(error);
+    }
+
+    const requestUrl = originalRequest.url || '';
+
+    const isRefreshRequest =
+      requestUrl.includes('/auth/new-accesstoken');
+
+    const isAuthRequest = [
+      '/auth/login',
+      '/auth/register',
+      '/auth/signup',
+      '/auth/logout',
+      '/auth/send-otp',
+      '/auth/reset-password',
+    ].some((path) => requestUrl.includes(path));
+
+    // Refresh on every 401 from protected APIs
+    const shouldRefresh = error.response?.status === 401;
+
+    if (
+      !shouldRefresh ||
+      originalRequest._retry ||
+      isRefreshRequest ||
+      isAuthRequest
+    ) {
+      const message =
+        error.response?.data?.message ||
+        error.response?.data?.error ||
+        error.message ||
+        'Network error. Please verify backend server is running.';
+
+      return Promise.reject(new Error(message));
+    }
+
+    originalRequest._retry = true;
+
+    try {
+      // Only one refresh request for simultaneous 401 responses
+      if (!refreshPromise) {
+        refreshPromise = refreshApi
+          .post('/auth/new-accesstoken')
+          .finally(() => {
+            refreshPromise = null;
+          });
+      }
+
+      // Wait until backend sets the new HttpOnly access cookie
+      await refreshPromise;
+
+      // Retry original request with updated cookie
+      return api(originalRequest);
+
+    } catch (refreshError) {
+      if (
+        Platform.OS === 'web' &&
+        typeof window !== 'undefined'
+      ) {
+        window.dispatchEvent(new Event('auth:logout'));
+      }
+
+      return Promise.reject(refreshError);
+    }
   }
 );
+
+
 
 export default api;

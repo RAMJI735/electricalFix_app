@@ -18,9 +18,12 @@ import { ArrowLeftIcon } from '../components/Icons';
 export default function LoginScreen({
   navigation,
   onNavigateToSignUp: propOnNavigateToSignUp,
+  onNavigateToForgotPassword: propOnNavigateToForgotPassword,
   onSkipToHome: propOnSkipToHome,
 }) {
   const onNavigateToSignUp = propOnNavigateToSignUp || (() => navigation?.navigate('SignUp'));
+  const onNavigateToForgotPassword =
+    propOnNavigateToForgotPassword || (() => navigation?.navigate('ForgotPassword'));
   const onSkipToHome = propOnSkipToHome || (() => navigation?.navigate('MainTabs'));
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -137,7 +140,11 @@ export default function LoginScreen({
               </View>
             </View>
 
-            <TouchableOpacity style={styles.forgotPasswordContainer} activeOpacity={0.7}>
+            <TouchableOpacity
+              style={styles.forgotPasswordContainer}
+              activeOpacity={0.7}
+              onPress={onNavigateToForgotPassword}
+            >
               <Text style={styles.forgotPasswordText}>Forgot password?</Text>
             </TouchableOpacity>
 

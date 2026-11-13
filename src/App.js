@@ -10,6 +10,7 @@ import OrdersScreen from './screens/OrdersScreen';
 import AddressScreen from './screens/AddressScreen';
 import LoginScreen from './(auth)/LoginScreen';
 import SignUpScreen from './(auth)/SignUpScreen';
+import ForgotPasswordScreen from './(auth)/ForgotPasswordScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -31,6 +32,7 @@ const linking = {
       Addresses: 'addresses',
       Login: 'login',
       SignUp: 'signup',
+      ForgotPassword: 'forgot-password',
     },
   },
 };
@@ -50,6 +52,7 @@ export default function App() {
           <Stack.Screen name="Addresses" component={AddressScreen} />
           <Stack.Screen name="Login" component={LoginScreen} />
           <Stack.Screen name="SignUp" component={SignUpScreen} />
+          <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
         </Stack.Navigator>
       </NavigationContainer>
     </RootLayout>
