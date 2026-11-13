@@ -53,6 +53,8 @@ export function useSettings(options = {}) {
     state: settings?.state || 'West Bengal',
     pincode: settings?.pincode || '700091',
     gstin: settings?.gstin || '19AAACV1234F1Z5',
+    termsAndConditions: settings?.termsAndConditions || null,
+    privacyPolicy: settings?.privacyPolicy || null,
   };
 }
 

@@ -68,6 +68,8 @@ export default function ProfileScreen({
     state,
     pincode,
     gstin,
+    termsAndConditions,
+    privacyPolicy,
     refetch: refetchSettings,
   } = useSettings();
 
@@ -82,6 +84,8 @@ export default function ProfileScreen({
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [showSupportModal, setShowSupportModal] = useState(false);
   const [showCertificatesModal, setShowCertificatesModal] = useState(false);
+  const [showTermsModal, setShowTermsModal] = useState(false);
+  const [showPrivacyModal, setShowPrivacyModal] = useState(false);
 
   // Profile Form States
   const [nameInput, setNameInput] = useState(user?.name || '');
@@ -319,6 +323,36 @@ export default function ProfileScreen({
             <Text style={styles.menuLabel}>Store Details & Support Hotline</Text>
             <Text style={styles.menuSub}>
               Warehouse contact, WhatsApp support, GSTIN details
+            </Text>
+          </View>
+          <Text style={styles.arrow}>›</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.menuItem}
+          activeOpacity={0.7}
+          onPress={() => setShowTermsModal(true)}
+        >
+          <Text style={styles.menuIcon}>📜</Text>
+          <View style={styles.menuTextWrap}>
+            <Text style={styles.menuLabel}>Terms & Conditions</Text>
+            <Text style={styles.menuSub}>
+              Quality guarantees, returns, warranties & contractor terms
+            </Text>
+          </View>
+          <Text style={styles.arrow}>›</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.menuItem}
+          activeOpacity={0.7}
+          onPress={() => setShowPrivacyModal(true)}
+        >
+          <Text style={styles.menuIcon}>🔒</Text>
+          <View style={styles.menuTextWrap}>
+            <Text style={styles.menuLabel}>Privacy Policy</Text>
+            <Text style={styles.menuSub}>
+              Data protection, zero card storage & privacy rights
             </Text>
           </View>
           <Text style={styles.arrow}>›</Text>
@@ -574,6 +608,160 @@ export default function ProfileScreen({
               <TouchableOpacity
                 style={styles.dismissBtn}
                 onPress={() => setShowCertificatesModal(false)}
+              >
+                <Text style={styles.dismissBtnText}>GOT IT</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* TERMS & CONDITIONS MODAL */}
+      <Modal
+        visible={showTermsModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowTermsModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <View>
+                <Text style={styles.modalTitle}>
+                  {termsAndConditions?.title || 'Terms & Conditions'}
+                </Text>
+                <Text style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>
+                  Official Platform & Contractor Terms
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setShowTermsModal(false)}>
+                <CloseIcon size={20} color="#64748b" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 420 }}>
+              <View style={styles.supportCard}>
+                <Text style={styles.supportLabel}>100% GENUINE & ISI CERTIFIED</Text>
+                <Text style={styles.supportSub}>
+                  All cables, modular fittings, and switchgears are brand new, ISI/BIS compliant, and direct from authorized manufacturers.
+                </Text>
+              </View>
+
+              <View style={styles.supportCard}>
+                <Text style={styles.supportLabel}>GST & INVOICING</Text>
+                <Text style={styles.supportSub}>
+                  Every order includes a full GST tax invoice (GSTIN: {gstin}). Input tax credit is available for registered contractor accounts.
+                </Text>
+              </View>
+
+              <View style={styles.supportCard}>
+                <Text style={styles.supportLabel}>SITE DELIVERY & OFFLOADING</Text>
+                <Text style={styles.supportSub}>
+                  Material dispatches are delivered to specified job sites. Customers must ensure vehicle access and verify package seals upon arrival.
+                </Text>
+              </View>
+
+              <View style={styles.supportCard}>
+                <Text style={styles.supportLabel}>INSTALLATION SERVICES</Text>
+                <Text style={styles.supportSub}>
+                  Technician services are performed by certified electricians. Customers must provide access to power isolation boards during installation.
+                </Text>
+              </View>
+
+              <View style={styles.supportCard}>
+                <Text style={styles.supportLabel}>7-DAY RETURNS & EXCEPTIONS</Text>
+                <Text style={styles.supportSub}>
+                  Standard unopened items are returnable within 7 days. Custom cut-to-order cables and modified switchboards are non-returnable.
+                </Text>
+              </View>
+
+              <View style={styles.supportCard}>
+                <Text style={styles.supportLabel}>CONTACT & JURISDICTION</Text>
+                <Text style={styles.supportSub}>
+                  Operating entity: {storeName}. Email: {supportEmail}. Helpline: {supportPhone}. Governed by the laws of India.
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                style={styles.dismissBtn}
+                onPress={() => setShowTermsModal(false)}
+              >
+                <Text style={styles.dismissBtnText}>I UNDERSTAND</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* PRIVACY POLICY MODAL */}
+      <Modal
+        visible={showPrivacyModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowPrivacyModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <View>
+                <Text style={styles.modalTitle}>
+                  {privacyPolicy?.title || 'Privacy Policy'}
+                </Text>
+                <Text style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>
+                  Data Protection & Financial Security
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setShowPrivacyModal(false)}>
+                <CloseIcon size={20} color="#64748b" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 420 }}>
+              <View style={styles.supportCard}>
+                <Text style={styles.supportLabel}>INFORMATION WE COLLECT</Text>
+                <Text style={styles.supportSub}>
+                  We collect your name, phone, delivery address, optional GPS site coordinates, and GSTIN strictly for order delivery and tax invoices.
+                </Text>
+              </View>
+
+              <View style={styles.supportCard}>
+                <Text style={styles.supportLabel}>ZERO CARD STORAGE</Text>
+                <Text style={styles.supportSub}>
+                  Voltline never stores debit/credit cards or UPI PINs. Online payments are processed through PCI-DSS bank-grade encrypted payment gateways.
+                </Text>
+              </View>
+
+              <View style={styles.supportCard}>
+                <Text style={styles.supportLabel}>NO THIRD-PARTY SALE</Text>
+                <Text style={styles.supportSub}>
+                  Your contact details are never sold or rented. Data is shared exclusively with logistics drivers and assigned technicians to fulfill your order.
+                </Text>
+              </View>
+
+              <View style={styles.supportCard}>
+                <Text style={styles.supportLabel}>DATA ENCRYPTION</Text>
+                <Text style={styles.supportSub}>
+                  All communication between the app and server is protected by SSL/TLS 1.3 encryption. Auth tokens are stored securely in local device storage.
+                </Text>
+              </View>
+
+              <View style={styles.supportCard}>
+                <Text style={styles.supportLabel}>YOUR RIGHTS & DELETION</Text>
+                <Text style={styles.supportSub}>
+                  You may update your profile or request account and data removal anytime by contacting our privacy officer at {supportEmail}.
+                </Text>
+              </View>
+
+              <View style={styles.supportCard}>
+                <Text style={styles.supportLabel}>OFFICIAL CONTACT</Text>
+                <Text style={styles.supportSub}>
+                  {storeName}, {officeAddress}, {city}, {state} - {pincode}. Support: {supportPhone}
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                style={styles.dismissBtn}
+                onPress={() => setShowPrivacyModal(false)}
               >
                 <Text style={styles.dismissBtnText}>GOT IT</Text>
               </TouchableOpacity>
