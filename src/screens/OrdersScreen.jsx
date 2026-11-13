@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   StyleSheet,
   Text,
@@ -10,14 +10,13 @@ import {
   Alert,
   Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useOrders, useCancelOrderMutation } from '../hooks';
 import { useAuth } from '../context/AuthContext';
-import OrderService from '../../services/orderService';
 import {
   PackageIcon,
   CheckCircleIcon,
   BoltIcon,
-  ShieldCheckIcon,
   ArrowLeftIcon,
   ChevronRightIcon,
 } from '../components/Icons';
@@ -29,7 +28,13 @@ export default function OrdersScreen({
   onSelectOrder: propOnSelectOrder,
   onNavigateToAuth: propOnNavigateToAuth,
 }) {
-  const onBack = propOnBack || (() => navigation?.goBack());
+  const onBack = propOnBack || (() => {
+    if (navigation?.canGoBack && navigation.canGoBack()) {
+      navigation.goBack();
+    } else if (navigation?.navigate) {
+      navigation.navigate('MainTabs');
+    }
+  });
   const onExploreShop = propOnExploreShop || (() => navigation?.navigate('Shop'));
   const onSelectOrder = propOnSelectOrder || ((order) => navigation?.navigate('OrderDetail', { orderId: order._id }));
   const onNavigateToAuth = propOnNavigateToAuth || ((screen) => navigation?.navigate(screen === 'signup' ? 'SignUp' : 'Login'));
@@ -61,8 +66,16 @@ export default function OrdersScreen({
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await refetch();
-    setRefreshing(false);
+    try {
+      await Promise.race([
+        refetch(),
+        new Promise((resolve) => setTimeout(resolve, 2000)),
+      ]);
+    } catch (_e) {
+      // Non-fatal
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   // Cancel order handler
@@ -129,7 +142,7 @@ export default function OrdersScreen({
   };
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       {/* Top Header */}
       <View style={styles.header}>
         {onBack && (
@@ -515,7 +528,7 @@ export default function OrdersScreen({
           <View style={{ height: 100 }} />
         </ScrollView>
       )}
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -527,15 +540,15 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 8,
-    gap: 10,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 14,
+    gap: 12,
   },
   backBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     backgroundColor: '#ffffff',
     justifyContent: 'center',
     alignItems: 'center',
@@ -555,9 +568,9 @@ const styles = StyleSheet.create({
   },
   refreshBtn: {
     backgroundColor: '#ffffff',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: '#e2e8f0',
   },
@@ -568,14 +581,14 @@ const styles = StyleSheet.create({
   },
   tabsRow: {
     flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    gap: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    gap: 10,
   },
   tabPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
     backgroundColor: '#ffffff',
     borderWidth: 1,
     borderColor: '#e2e8f0',
@@ -653,14 +666,15 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    gap: 12,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 40,
+    gap: 16,
   },
   orderCard: {
     backgroundColor: '#ffffff',
-    borderRadius: 14,
-    padding: 14,
+    borderRadius: 18,
+    padding: 18,
     borderWidth: 1,
     borderColor: '#e2e8f0',
     shadowColor: '#0f172a',

@@ -65,7 +65,7 @@ export default function LoginScreen({
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {/* Top Back Nav & Brand Header */}
+          {/* Header */}
           <View style={styles.topRow}>
             <TouchableOpacity
               style={styles.backButton}
@@ -81,35 +81,33 @@ export default function LoginScreen({
               <ArrowLeftIcon size={18} color="#0f172a" />
             </TouchableOpacity>
             <View style={{ flex: 1 }}>
-              <VoltlineHeader mode="login" />
+              <VoltlineHeader />
             </View>
           </View>
 
-          {/* Screen Title Section */}
+          {/* Title Section */}
           <View style={styles.headerSection}>
-            <Text style={styles.eyebrow}>AUTHORIZED ACCESS</Text>
             <Text style={styles.title}>Welcome back</Text>
             <Text style={styles.subtitle}>
-              Sign in to manage service requests, orders, and device support.
+              Sign in to manage your orders, saved addresses, and booked services.
             </Text>
           </View>
 
           {/* Error Banner */}
           {!!localError && (
             <View style={styles.errorBanner}>
-              <Text style={styles.errorIcon}>⚠️</Text>
               <Text style={styles.errorText}>{localError}</Text>
             </View>
           )}
 
-          {/* Main Login Card */}
+          {/* Main Card */}
           <View style={styles.card}>
             <View style={styles.fieldGroup}>
-              <Text style={styles.label}>Email address</Text>
+              <Text style={styles.label}>Email</Text>
               <View style={styles.inputContainer}>
                 <TextInput
                   style={styles.input}
-                  placeholder="you@company.com"
+                  placeholder="name@example.com"
                   placeholderTextColor="#94a3b8"
                   value={email}
                   onChangeText={(text) => {
@@ -127,7 +125,7 @@ export default function LoginScreen({
               <View style={styles.inputContainer}>
                 <TextInput
                   style={styles.input}
-                  placeholder="••••••••"
+                  placeholder="Enter your password"
                   placeholderTextColor="#94a3b8"
                   value={password}
                   onChangeText={(text) => {
@@ -152,7 +150,7 @@ export default function LoginScreen({
               {loading ? (
                 <ActivityIndicator color="#ffffff" size="small" />
               ) : (
-                <Text style={styles.primaryButtonText}>LOG IN TO CONSOLE  →</Text>
+                <Text style={styles.primaryButtonText}>Sign In</Text>
               )}
             </TouchableOpacity>
 
@@ -162,27 +160,17 @@ export default function LoginScreen({
                 activeOpacity={0.7}
                 onPress={onSkipToHome}
               >
-                <Text style={styles.returnButtonText}>
-                  ← Return to Catalog (View Only)
-                </Text>
+                <Text style={styles.returnButtonText}>Continue as guest</Text>
               </TouchableOpacity>
             )}
           </View>
 
-          {/* Switch to Sign Up Card */}
-          <View style={styles.bottomCard}>
-            <Text style={styles.bottomCardMuted}>New to Voltline? </Text>
+          {/* Switch to Sign Up */}
+          <View style={styles.bottomRow}>
+            <Text style={styles.bottomText}>{"Don't have an account? "}</Text>
             <TouchableOpacity onPress={onNavigateToSignUp} activeOpacity={0.7}>
-              <Text style={styles.bottomCardLink}>Create a secure account</Text>
+              <Text style={styles.bottomLink}>Sign up</Text>
             </TouchableOpacity>
-          </View>
-
-          {/* Footer Assurance */}
-          <View style={styles.footer}>
-            <Text style={styles.footerIcon}>🛡️</Text>
-            <Text style={styles.footerText}>
-              Encrypted session • Trusted electrical commerce network
-            </Text>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -202,7 +190,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     paddingTop: 8,
     paddingBottom: 40,
   },
@@ -210,33 +198,28 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+    marginBottom: 8,
   },
   backButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 9,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     backgroundColor: '#ffffff',
     borderWidth: 1,
     borderColor: '#e2e8f0',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
   },
   headerSection: {
     marginBottom: 20,
-  },
-  eyebrow: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#2563eb',
-    letterSpacing: 0.8,
-    marginBottom: 6,
+    marginTop: 4,
   },
   title: {
     fontSize: 26,
-    fontWeight: '700',
+    fontWeight: '800',
     color: '#0f172a',
-    marginBottom: 8,
+    letterSpacing: -0.5,
+    marginBottom: 6,
   },
   subtitle: {
     fontSize: 14,
@@ -245,16 +228,16 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: '#ffffff',
-    borderRadius: 14,
+    borderRadius: 18,
     padding: 20,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
     shadowColor: '#0f172a',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
     elevation: 2,
-    borderWidth: 1,
-    borderColor: '#eef2f6',
-    marginBottom: 18,
+    marginBottom: 20,
   },
   fieldGroup: {
     marginBottom: 16,
@@ -262,16 +245,16 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#1e293b',
+    color: '#334155',
     marginBottom: 6,
   },
   inputContainer: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: '#cbd5e1',
+    borderRadius: 12,
     backgroundColor: '#ffffff',
-    paddingHorizontal: 12,
-    height: 44,
+    paddingHorizontal: 14,
+    height: 48,
     justifyContent: 'center',
   },
   input: {
@@ -281,94 +264,69 @@ const styles = StyleSheet.create({
   forgotPasswordContainer: {
     alignItems: 'flex-end',
     marginBottom: 20,
-    marginTop: -4,
+    marginTop: -2,
   },
   forgotPasswordText: {
-    fontSize: 12,
+    fontSize: 13,
     color: '#2563eb',
     fontWeight: '600',
   },
   primaryButton: {
-    backgroundColor: '#1d64f2',
-    height: 48,
-    borderRadius: 10,
+    backgroundColor: '#2563eb',
+    height: 50,
+    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
+    shadowColor: '#2563eb',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 3,
   },
   buttonDisabled: {
-    opacity: 0.7,
+    opacity: 0.65,
   },
   primaryButtonText: {
     color: '#ffffff',
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: '700',
-    letterSpacing: 0.5,
   },
   returnButton: {
     alignItems: 'center',
-    marginTop: 14,
+    marginTop: 16,
     paddingVertical: 6,
   },
   returnButtonText: {
-    fontSize: 12,
+    fontSize: 13,
     color: '#64748b',
     fontWeight: '600',
   },
-  bottomCard: {
+  bottomRow: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderWidth: 1,
-    borderColor: '#eef2f6',
-    marginBottom: 20,
+    paddingVertical: 12,
   },
-  bottomCardMuted: {
-    fontSize: 13,
+  bottomText: {
+    fontSize: 14,
     color: '#64748b',
   },
-  bottomCardLink: {
-    fontSize: 13,
+  bottomLink: {
+    fontSize: 14,
     fontWeight: '700',
-    color: '#1d64f2',
+    color: '#2563eb',
   },
   errorBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
     backgroundColor: '#fef2f2',
     borderWidth: 1,
     borderColor: '#fecaca',
-    borderRadius: 8,
-    padding: 10,
+    borderRadius: 12,
+    padding: 12,
     marginBottom: 16,
-    gap: 8,
-  },
-  errorIcon: {
-    fontSize: 14,
   },
   errorText: {
-    flex: 1,
-    fontSize: 12,
+    fontSize: 13,
     color: '#dc2626',
-    fontWeight: '600',
-  },
-  footer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingTop: 8,
-    paddingBottom: 24,
-  },
-  footerIcon: {
-    fontSize: 14,
-  },
-  footerText: {
-    fontSize: 11,
-    color: '#94a3b8',
-    textAlign: 'center',
+    fontWeight: '500',
   },
 });

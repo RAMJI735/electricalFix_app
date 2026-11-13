@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState } from 'react';
 import {
   StyleSheet,
   Text,
@@ -12,16 +12,14 @@ import {
   Share,
   RefreshControl,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useOrderDetails, useCancelOrderMutation, useSettings } from '../hooks';
-import OrderService from '../../services/orderService';
 import { useCart } from '../context/CartContext';
 import {
   ArrowLeftIcon,
   CheckCircleIcon,
   BoltIcon,
-  ShieldCheckIcon,
   CloseIcon,
-  PackageIcon,
 } from '../components/Icons';
 
 export default function OrderDetailPage({
@@ -34,7 +32,13 @@ export default function OrderDetailPage({
 }) {
   const orderId = route?.params?.orderId || route?.params?.id || propOrderId;
   const initialOrder = route?.params?.initialOrder || route?.params?.order || propInitialOrder;
-  const onBack = propOnBack || (() => navigation?.goBack());
+  const onBack = propOnBack || (() => {
+    if (navigation?.canGoBack && navigation.canGoBack()) {
+      navigation.goBack();
+    } else if (navigation?.navigate) {
+      navigation.navigate('MainTabs');
+    }
+  });
   const onReorderSuccess = propOnReorderSuccess || (() => navigation?.navigate('Cart'));
   const targetId = orderId || initialOrder?._id;
   const {
@@ -68,8 +72,16 @@ export default function OrderDetailPage({
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await refetch();
-    setRefreshing(false);
+    try {
+      await Promise.race([
+        refetch(),
+        new Promise((resolve) => setTimeout(resolve, 2000)),
+      ]);
+    } catch (_e) {
+      // Non-fatal
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   // Handle Cancel Order
@@ -146,23 +158,27 @@ export default function OrderDetailPage({
 
   if (loading && !order) {
     return (
-      <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color="#2563eb" />
-        <Text style={styles.loadingText}>Fetching order details...</Text>
-      </View>
+      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+        <View style={styles.centerContainer}>
+          <ActivityIndicator size="large" color="#2563eb" />
+          <Text style={styles.loadingText}>Fetching order details...</Text>
+        </View>
+      </SafeAreaView>
     );
   }
 
   if (error && !order) {
     return (
-      <View style={styles.centerContainer}>
-        <Text style={{ fontSize: 36, marginBottom: 12 }}>⚠️</Text>
-        <Text style={styles.errorTitle}>Order Not Found</Text>
-        <Text style={styles.errorSub}>{error}</Text>
-        <TouchableOpacity style={styles.backButtonOutline} onPress={onBack}>
-          <Text style={styles.backButtonOutlineText}>GO BACK TO ORDERS</Text>
-        </TouchableOpacity>
-      </View>
+      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+        <View style={styles.centerContainer}>
+          <Text style={{ fontSize: 36, marginBottom: 12 }}>⚠️</Text>
+          <Text style={styles.errorTitle}>Order Not Found</Text>
+          <Text style={styles.errorSub}>{error}</Text>
+          <TouchableOpacity style={styles.backButtonOutline} onPress={onBack}>
+            <Text style={styles.backButtonOutlineText}>GO BACK TO ORDERS</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
     );
   }
 
@@ -197,14 +213,18 @@ export default function OrderDetailPage({
       })
     : '';
 
+  const isInclusive = (order?.summary?.gstType || settings?.commerce?.gstType) === 'inclusive';
   const subtotal = order?.summary?.subtotal || 0;
   const discount = order?.summary?.discount || 0;
   const taxable = Math.max(0, subtotal - discount);
-  const cgst = Math.round((taxable * (halfTax / 100)) * 100) / 100;
-  const sgst = Math.round((taxable * (halfTax / 100)) * 100) / 100;
-  const gstTotal = order?.summary?.tax || cgst + sgst;
+
+  const gstTotal = Math.round((taxable * (taxRate / 100)) * 100) / 100;
+  const cgst = Math.round((gstTotal / 2) * 100) / 100;
+  const sgst = Math.round((gstTotal - cgst) * 100) / 100;
+  const baseAmount = isInclusive ? Math.max(0, taxable - gstTotal) : taxable;
+
   const shippingFee = order?.summary?.shippingFee || 0;
-  const grandTotal = order?.summary?.grandTotal || 0;
+  const grandTotal = order?.summary?.grandTotal || (isInclusive ? (taxable + shippingFee) : (taxable + gstTotal + shippingFee));
 
   // Stages for visual step tracker
   const stages = [
@@ -232,7 +252,7 @@ export default function OrderDetailPage({
   const currentStageIdx = getStageIndex(orderStatus);
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       {/* Top Header */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.backBtn} activeOpacity={0.7} onPress={onBack}>
@@ -398,7 +418,9 @@ export default function OrderDetailPage({
                   <Text style={styles.itemPriceTotal}>
                     ₹{(item.price || 0) * (item.quantity || 1)}
                   </Text>
-                  <Text style={styles.itemTaxIncluded}>Inc. 18% GST</Text>
+                  <Text style={styles.itemTaxIncluded}>
+                    {order?.summary?.gstType === 'exclusive' ? '+ GST' : 'Inc. GST'}
+                  </Text>
                 </View>
               </View>
             ))}
@@ -705,7 +727,7 @@ export default function OrderDetailPage({
               <View style={styles.invoiceTotals}>
                 <View style={styles.invoiceTotalRow}>
                   <Text style={styles.invoiceTotalLabel}>Taxable Value:</Text>
-                  <Text style={styles.invoiceTotalVal}>₹{taxable}</Text>
+                  <Text style={styles.invoiceTotalVal}>₹{baseAmount}</Text>
                 </View>
                 <View style={styles.invoiceTotalRow}>
                   <Text style={styles.invoiceTotalLabel}>CGST ({halfTax}%):</Text>
@@ -733,7 +755,7 @@ export default function OrderDetailPage({
           </View>
         </View>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -745,18 +767,18 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 8,
-    gap: 10,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 14,
+    gap: 12,
     backgroundColor: '#ffffff',
     borderBottomWidth: 1,
     borderBottomColor: '#f1f5f9',
   },
   backBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     backgroundColor: '#f8fafc',
     justifyContent: 'center',
     alignItems: 'center',
@@ -776,9 +798,9 @@ const styles = StyleSheet.create({
   },
   shareBtn: {
     backgroundColor: '#f1f5f9',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
   },
   shareBtnText: {
     fontSize: 11,
@@ -825,13 +847,14 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    gap: 12,
+    paddingHorizontal: 20,
+    paddingTop: 14,
+    paddingBottom: 40,
+    gap: 16,
   },
   statusHeroCard: {
-    borderRadius: 14,
-    padding: 16,
+    borderRadius: 18,
+    padding: 18,
     borderWidth: 1,
   },
   statusHeroTop: {
@@ -930,8 +953,8 @@ const styles = StyleSheet.create({
   },
   sectionCard: {
     backgroundColor: '#ffffff',
-    borderRadius: 14,
-    padding: 16,
+    borderRadius: 18,
+    padding: 20,
     borderWidth: 1,
     borderColor: '#e2e8f0',
     shadowColor: '#0f172a',

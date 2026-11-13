@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api, setAuthToken, getActiveToken } from '../utils/api';
 
@@ -7,15 +8,18 @@ const USER_KEY = 'voltline_auth_user';
 // In-memory cache for synchronous reads
 const memoryStore = new Map();
 
-// Multi-tier storage helper (Memory + SessionStorage + LocalStorage + AsyncStorage)
+// Multi-tier storage helper:
+// - Tokens are stored ONLY in memory and SessionStorage (and AsyncStorage on native iOS/Android). Tokens are NEVER stored in localStorage.
+// - User data is stored in Memory, SessionStorage, and LocalStorage/AsyncStorage.
 const storage = {
   getItem: (key) => {
     if (memoryStore.has(key)) {
       return memoryStore.get(key);
     }
+    const isTokenKey = key === TOKEN_KEY || key === 'token';
     try {
       if (typeof window !== 'undefined') {
-        // 1. Session Storage
+        // 1. Session Storage (valid for both token and user data)
         if (window.sessionStorage) {
           const sVal = window.sessionStorage.getItem(key);
           if (sVal) {
@@ -23,8 +27,8 @@ const storage = {
             return sVal;
           }
         }
-        // 2. Local Storage
-        if (window.localStorage) {
+        // 2. Local Storage: ONLY permitted for user data, NEVER for token!
+        if (!isTokenKey && window.localStorage) {
           const lVal = window.localStorage.getItem(key);
           if (lVal) {
             memoryStore.set(key, lVal);
@@ -32,26 +36,40 @@ const storage = {
           }
         }
       }
-    } catch (e) {
+    } catch (_e) {
       // Ignore storage errors
     }
     return null;
   },
   setItem: (key, value) => {
     memoryStore.set(key, value);
+    const isTokenKey = key === TOKEN_KEY || key === 'token';
     try {
       if (typeof window !== 'undefined') {
+        // SessionStorage stores both tokens and user data
         if (window.sessionStorage) {
           window.sessionStorage.setItem(key, value);
         }
         if (window.localStorage) {
-          window.localStorage.setItem(key, value);
+          if (isTokenKey) {
+            // Strictly prevent token from being saved in localStorage, and remove if present
+            window.localStorage.removeItem(key);
+          } else {
+            // Store user data in localStorage
+            window.localStorage.setItem(key, value);
+          }
         }
       }
-    } catch (e) {}
+    } catch (_e) {}
     try {
-      AsyncStorage.setItem(key, value).catch(() => {});
-    } catch (e) {}
+      // On web, AsyncStorage maps directly to localStorage.
+      // Therefore, NEVER write tokens to AsyncStorage on web!
+      // Only write tokens to AsyncStorage on native mobile platforms (iOS/Android).
+      // User data can always be saved to AsyncStorage.
+      if (!isTokenKey || Platform.OS !== 'web') {
+        AsyncStorage.setItem(key, value).catch(() => {});
+      }
+    } catch (_e) {}
   },
   removeItem: (key) => {
     memoryStore.delete(key);
@@ -64,10 +82,10 @@ const storage = {
           window.localStorage.removeItem(key);
         }
       }
-    } catch (e) {}
+    } catch (_e) {}
     try {
       AsyncStorage.removeItem(key).catch(() => {});
-    } catch (e) {}
+    } catch (_e) {}
   },
 };
 
@@ -160,13 +178,19 @@ export const AuthService = {
    */
   async restoreSessionAsync() {
     try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.removeItem(TOKEN_KEY);
+        window.localStorage.removeItem('token');
+      }
+
       let storedToken = await getActiveToken();
       let storedUser = storage.getItem(USER_KEY) || storage.getItem('user');
 
       if (!storedUser) {
-        const [, userPair] = await AsyncStorage.multiGet([TOKEN_KEY, USER_KEY]).catch(() => [null, null]);
-        if (userPair && userPair[1]) {
-          storedUser = userPair[1];
+        const userVal = (await AsyncStorage.getItem(USER_KEY).catch(() => null)) ||
+                        (await AsyncStorage.getItem('user').catch(() => null));
+        if (userVal) {
+          storedUser = userVal;
           memoryStore.set(USER_KEY, storedUser);
         }
       }
@@ -179,7 +203,7 @@ export const AuthService = {
         token: storedToken || null,
         user: storedUser ? JSON.parse(storedUser) : null,
       };
-    } catch (e) {
+    } catch (_e) {
       return { token: null, user: null };
     }
   },

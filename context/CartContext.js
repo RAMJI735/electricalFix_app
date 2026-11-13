@@ -119,8 +119,8 @@ export function CartProvider({ children }) {
         (acc, curr) => acc + (curr.price || 0) * (curr.quantity || 1),
         0
       );
-      const tax = Math.round(newSubtotal * 0.18);
-      const shipping = newSubtotal > 2000 || newSubtotal === 0 ? 0 : 150;
+      const tax = Math.round((newSubtotal * 0.18) * 100) / 100;
+      const shipping = prev?.shippingFee || 0;
       return {
         ...prev,
         items: updatedItems,
@@ -128,7 +128,7 @@ export function CartProvider({ children }) {
         totalPrice: newSubtotal,
         tax,
         shippingFee: shipping,
-        grandTotal: newSubtotal + tax + shipping - (prev.discount || 0),
+        grandTotal: Math.max(0, newSubtotal + shipping - (prev.discount || 0)),
       };
     });
 
@@ -173,8 +173,8 @@ export function CartProvider({ children }) {
         (acc, curr) => acc + (curr.price || 0) * (curr.quantity || 1),
         0
       );
-      const tax = Math.round(newSubtotal * 0.18);
-      const shipping = newSubtotal > 2000 || newSubtotal === 0 ? 0 : 150;
+      const tax = Math.round((newSubtotal * 0.18) * 100) / 100;
+      const shipping = prev?.shippingFee || 0;
       return {
         ...prev,
         items: filtered,
@@ -182,7 +182,7 @@ export function CartProvider({ children }) {
         totalPrice: newSubtotal,
         tax,
         shippingFee: shipping,
-        grandTotal: Math.max(0, newSubtotal + tax + shipping - (prev.discount || 0)),
+        grandTotal: Math.max(0, newSubtotal + shipping - (prev.discount || 0)),
       };
     });
 

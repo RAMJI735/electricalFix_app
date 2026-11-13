@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState } from 'react';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   StyleSheet,
   Text,
@@ -12,7 +13,6 @@ import {
   Alert,
   Platform,
   KeyboardAvoidingView,
-  Keyboard,
 } from 'react-native';
 import {
   useAddresses,
@@ -21,14 +21,12 @@ import {
   useDeleteAddressMutation,
   useSetDefaultAddressMutation,
 } from '../hooks';
-import AddressService from '../../services/addressService';
 import { useAuth } from '../context/AuthContext';
 import { getCurrentUserLocation } from '../utils/locationHelper';
 import {
   ArrowLeftIcon,
   CheckCircleIcon,
   CloseIcon,
-  TrashIcon,
   BoltIcon,
 } from '../components/Icons';
 
@@ -38,7 +36,13 @@ export default function AddressScreen({
   onSelectAddress,
   onNavigateToAuth: propOnNavigateToAuth,
 }) {
-  const onBack = propOnBack || (() => navigation?.goBack());
+  const onBack = propOnBack || (() => {
+    if (navigation?.canGoBack && navigation.canGoBack()) {
+      navigation.goBack();
+    } else if (navigation?.navigate) {
+      navigation.navigate('MainTabs');
+    }
+  });
   const onNavigateToAuth = propOnNavigateToAuth || ((screen) => navigation?.navigate(screen === 'signup' ? 'SignUp' : 'Login'));
   const { user, isAuthenticated } = useAuth();
   const { data: fetchedAddresses, isLoading: loading, error: queryError, refetch } = useAddresses();
@@ -75,8 +79,16 @@ export default function AddressScreen({
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await refetch();
-    setRefreshing(false);
+    try {
+      await Promise.race([
+        refetch(),
+        new Promise((resolve) => setTimeout(resolve, 2000)),
+      ]);
+    } catch (_e) {
+      // Non-fatal
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   // Open Add Modal
@@ -315,7 +327,7 @@ export default function AddressScreen({
   };
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       {/* Header */}
       <View style={styles.header}>
         {onBack && (
@@ -793,7 +805,7 @@ export default function AddressScreen({
           </View>
         </KeyboardAvoidingView>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -805,15 +817,15 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 8,
-    gap: 10,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 14,
+    gap: 12,
   },
   backBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     backgroundColor: '#ffffff',
     justifyContent: 'center',
     alignItems: 'center',
@@ -821,25 +833,32 @@ const styles = StyleSheet.create({
     borderColor: '#e2e8f0',
   },
   eyebrow: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '700',
     color: '#2563eb',
-    letterSpacing: 0.8,
+    letterSpacing: 0.5,
+    marginBottom: 2,
   },
   title: {
     fontSize: 22,
     fontWeight: '800',
     color: '#0f172a',
+    letterSpacing: -0.4,
   },
   addBtn: {
     backgroundColor: '#0f172a',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 2,
   },
   addBtnText: {
     color: '#ffffff',
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '700',
   },
   centerContainer: {
@@ -903,26 +922,30 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    gap: 12,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 40,
+    gap: 16,
   },
   addressCard: {
     backgroundColor: '#ffffff',
-    borderRadius: 14,
-    padding: 16,
+    borderRadius: 18,
+    padding: 20,
     borderWidth: 1,
     borderColor: '#e2e8f0',
     shadowColor: '#0f172a',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
     elevation: 2,
+    marginBottom: 4,
   },
   addressCardDefault: {
-    borderColor: '#93c5fd',
+    borderColor: '#3b82f6',
     borderWidth: 1.5,
     backgroundColor: '#ffffff',
+    shadowColor: '#2563eb',
+    shadowOpacity: 0.08,
   },
   cardHeader: {
     flexDirection: 'row',

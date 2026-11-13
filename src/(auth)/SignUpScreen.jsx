@@ -48,15 +48,19 @@ export default function SignUpScreen({
   const handleSignUp = async () => {
     setLocalError('');
     if (!fullName.trim() || fullName.trim().length < 2) {
-      setLocalError('Please enter your full name (at least 2 characters)');
+      setLocalError('Please enter your full name');
       return;
     }
-    if (!email.trim() || !email.includes('@')) {
+
+    let pattern = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,4}$/;
+    if (!pattern.test(email.trim())) {
       setLocalError('Please enter a valid email address');
       return;
     }
+
+
     if (!password || password.length < 6) {
-      setLocalError('Password must be at least 6 characters long');
+      setLocalError('Password must be at least 6 characters');
       return;
     }
 
@@ -112,7 +116,7 @@ export default function SignUpScreen({
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {/* Top Back Nav & Brand Header */}
+          {/* Top Bar */}
           <View style={styles.topRow}>
             <TouchableOpacity
               style={styles.backButton}
@@ -128,23 +132,21 @@ export default function SignUpScreen({
               <ArrowLeftIcon size={18} color="#0f172a" />
             </TouchableOpacity>
             <View style={{ flex: 1 }}>
-              <VoltlineHeader mode="signup" />
+              <VoltlineHeader />
             </View>
           </View>
 
-          {/* Screen Title Section */}
+          {/* Title Section */}
           <View style={styles.headerSection}>
-            <Text style={styles.eyebrow}>NEW SERVICE ACCOUNT</Text>
             <Text style={styles.title}>Create your account</Text>
             <Text style={styles.subtitle}>
-              Register for repairs, installation tracking, and verified electrical support.
+              Register to book trusted electrician services and order genuine parts.
             </Text>
           </View>
 
           {/* Error Banner */}
           {!!localError && (
             <View style={styles.errorBanner}>
-              <Text style={styles.errorIcon}>⚠️</Text>
               <Text style={styles.errorText}>{localError}</Text>
             </View>
           )}
@@ -153,38 +155,38 @@ export default function SignUpScreen({
           <View style={styles.formCard}>
             {/* Full Name */}
             <View style={styles.fieldGroup}>
-              <Text style={styles.label}>Full name</Text>
+              <Text style={styles.label}>Full Name</Text>
               <View style={styles.inputContainer}>
                 <TextInput
                   style={styles.input}
-                  placeholder="2-50 characters"
+                  placeholder="e.g. Rahul Sharma"
                   placeholderTextColor="#94a3b8"
                   value={fullName}
-                  onChangeText={setFullName}
+                  onChangeText={(text) => {
+                    setFullName(text);
+                    if (localError) setLocalError('');
+                  }}
                 />
               </View>
-              <Text style={styles.helperText}>
-                Required • Leading and trailing spaces are removed
-              </Text>
             </View>
 
             {/* Email Address */}
             <View style={styles.fieldGroup}>
-              <Text style={styles.label}>Email address</Text>
+              <Text style={styles.label}>Email Address</Text>
               <View style={styles.inputContainer}>
                 <TextInput
                   style={styles.input}
-                  placeholder="you@company.com"
+                  placeholder="name@example.com"
                   placeholderTextColor="#94a3b8"
                   value={email}
-                  onChangeText={setEmail}
+                  onChangeText={(text) => {
+                    setEmail(text);
+                    if (localError) setLocalError('');
+                  }}
                   keyboardType="email-address"
                   autoCapitalize="none"
                 />
               </View>
-              <Text style={styles.helperText}>
-                Required • Valid email • Stored in lowercase
-              </Text>
             </View>
 
             {/* Password */}
@@ -193,22 +195,21 @@ export default function SignUpScreen({
               <View style={styles.inputContainer}>
                 <TextInput
                   style={styles.input}
-                  placeholder="••••••••"
+                  placeholder="At least 6 characters"
                   placeholderTextColor="#94a3b8"
                   value={password}
-                  onChangeText={setPassword}
+                  onChangeText={(text) => {
+                    setPassword(text);
+                    if (localError) setLocalError('');
+                  }}
                   secureTextEntry
                 />
               </View>
-              <Text style={styles.helperText}>Required • Minimum 6 characters</Text>
             </View>
 
             {/* Phone */}
             <View style={styles.fieldGroup}>
-              <View style={styles.labelRow}>
-                <Text style={styles.label}>Phone</Text>
-                <Text style={styles.optionalBadge}>OPTIONAL</Text>
-              </View>
+              <Text style={styles.label}>Phone Number (Optional)</Text>
               <View style={styles.inputContainer}>
                 <TextInput
                   style={styles.input}
@@ -222,11 +223,8 @@ export default function SignUpScreen({
             </View>
 
             {/* Profile Avatar Selection */}
-            <View style={styles.fieldGroupLast}>
-              <View style={styles.labelRow}>
-                <Text style={styles.label}>Profile avatar</Text>
-                <Text style={styles.optionalBadge}>OPTIONAL</Text>
-              </View>
+            <View style={styles.avatarSection}>
+              <Text style={styles.label}>Choose Avatar</Text>
               <View style={styles.avatarRow}>
                 {AVATAR_OPTIONS.map((item) => (
                   <TouchableOpacity
@@ -252,31 +250,28 @@ export default function SignUpScreen({
               onPress={() => setIsAddressExpanded(!isAddressExpanded)}
               activeOpacity={0.7}
             >
-              <View>
-                <Text style={styles.accordionTitle}>Service address</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.accordionTitle}>Delivery / Site Address</Text>
                 <Text style={styles.accordionSubtitle}>
                   {isAddressExpanded
-                    ? 'OPTIONAL • Tap to collapse'
-                    : 'OPTIONAL • Tap to add delivery/site address'}
+                    ? 'Tap to collapse'
+                    : 'Optional • Add your address now or later'}
                 </Text>
               </View>
-              <Text style={styles.accordionChevron}>
+              <Text style={styles.accordionArrow}>
                 {isAddressExpanded ? '▲' : '▼'}
               </Text>
             </TouchableOpacity>
 
             {isAddressExpanded && (
-              <View style={styles.accordionContent}>
+              <View style={styles.accordionBody}>
                 {/* Street */}
                 <View style={styles.fieldGroup}>
-                  <View style={styles.labelRow}>
-                    <Text style={styles.label}>Street</Text>
-                    <Text style={styles.optionalBadge}>OPTIONAL</Text>
-                  </View>
+                  <Text style={styles.label}>Street Address</Text>
                   <View style={styles.inputContainer}>
                     <TextInput
                       style={styles.input}
-                      placeholder="Building and street"
+                      placeholder="Flat, House no., Building, Apartment"
                       placeholderTextColor="#94a3b8"
                       value={street}
                       onChangeText={setStreet}
@@ -287,10 +282,7 @@ export default function SignUpScreen({
                 {/* City & State (Row) */}
                 <View style={styles.twoColumnRow}>
                   <View style={[styles.fieldGroup, styles.flexHalf]}>
-                    <View style={styles.labelRow}>
-                      <Text style={styles.label}>City</Text>
-                      <Text style={styles.optionalBadgeSmall}>OPTIONAL</Text>
-                    </View>
+                    <Text style={styles.label}>City</Text>
                     <View style={styles.inputContainer}>
                       <TextInput
                         style={styles.input}
@@ -303,10 +295,7 @@ export default function SignUpScreen({
                   </View>
 
                   <View style={[styles.fieldGroup, styles.flexHalf]}>
-                    <View style={styles.labelRow}>
-                      <Text style={styles.label}>State</Text>
-                      <Text style={styles.optionalBadgeSmall}>OPTIONAL</Text>
-                    </View>
+                    <Text style={styles.label}>State</Text>
                     <View style={styles.inputContainer}>
                       <TextInput
                         style={styles.input}
@@ -322,14 +311,11 @@ export default function SignUpScreen({
                 {/* Postal Code & Country (Row) */}
                 <View style={styles.twoColumnRow}>
                   <View style={[styles.fieldGroup, styles.flexHalf]}>
-                    <View style={styles.labelRow}>
-                      <Text style={styles.label}>Postal code</Text>
-                      <Text style={styles.optionalBadgeSmall}>OPTIONAL</Text>
-                    </View>
+                    <Text style={styles.label}>PIN Code</Text>
                     <View style={styles.inputContainer}>
                       <TextInput
                         style={styles.input}
-                        placeholder="000000"
+                        placeholder="e.g. 700091"
                         placeholderTextColor="#94a3b8"
                         value={postalCode}
                         onChangeText={setPostalCode}
@@ -339,9 +325,7 @@ export default function SignUpScreen({
                   </View>
 
                   <View style={[styles.fieldGroup, styles.flexHalf]}>
-                    <View style={styles.labelRow}>
-                      <Text style={styles.label}>Country</Text>
-                    </View>
+                    <Text style={styles.label}>Country</Text>
                     <View style={styles.inputContainer}>
                       <TextInput
                         style={styles.input}
@@ -369,7 +353,7 @@ export default function SignUpScreen({
                     {isDefaultAddress && <Text style={styles.checkmark}>✓</Text>}
                   </View>
                   <Text style={styles.checkboxLabel}>
-                    Use as my default service address
+                    Save as default delivery address
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -386,7 +370,7 @@ export default function SignUpScreen({
             {loading ? (
               <ActivityIndicator color="#ffffff" size="small" />
             ) : (
-              <Text style={styles.primaryButtonText}>CREATE SECURE ACCOUNT  →</Text>
+              <Text style={styles.primaryButtonText}>Create Account</Text>
             )}
           </TouchableOpacity>
 
@@ -396,15 +380,13 @@ export default function SignUpScreen({
               activeOpacity={0.7}
               onPress={onSkipToHome}
             >
-              <Text style={styles.returnButtonText}>
-                ← Return to Catalog (View Only)
-              </Text>
+              <Text style={styles.returnButtonText}>Continue as guest</Text>
             </TouchableOpacity>
           )}
 
           {/* Switch to Login Link */}
           <View style={styles.switchAuthContainer}>
-            <Text style={styles.switchAuthText}>Already registered? </Text>
+            <Text style={styles.switchAuthText}>Already have an account? </Text>
             <TouchableOpacity onPress={onNavigateToLogin} activeOpacity={0.7}>
               <Text style={styles.switchAuthLink}>Log in</Text>
             </TouchableOpacity>
@@ -427,7 +409,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     paddingTop: 8,
     paddingBottom: 48,
   },
@@ -435,33 +417,28 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+    marginBottom: 8,
   },
   backButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 9,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     backgroundColor: '#ffffff',
     borderWidth: 1,
     borderColor: '#e2e8f0',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
   },
   headerSection: {
     marginBottom: 20,
-  },
-  eyebrow: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#2563eb',
-    letterSpacing: 0.8,
-    marginBottom: 6,
+    marginTop: 4,
   },
   title: {
     fontSize: 26,
-    fontWeight: '700',
+    fontWeight: '800',
     color: '#0f172a',
-    marginBottom: 8,
+    letterSpacing: -0.5,
+    marginBottom: 6,
   },
   subtitle: {
     fontSize: 14,
@@ -470,90 +447,75 @@ const styles = StyleSheet.create({
   },
   formCard: {
     backgroundColor: '#ffffff',
-    borderRadius: 14,
-    padding: 18,
+    borderRadius: 18,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
     shadowColor: '#0f172a',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.04,
-    shadowRadius: 10,
+    shadowRadius: 12,
     elevation: 2,
-    borderWidth: 1,
-    borderColor: '#eef2f6',
     marginBottom: 16,
   },
   fieldGroup: {
-    marginBottom: 14,
+    marginBottom: 16,
   },
-  fieldGroupLast: {
-    marginBottom: 4,
-  },
-  labelRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 6,
+  avatarSection: {
+    marginTop: 4,
   },
   label: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#1e293b',
-  },
-  optionalBadge: {
-    fontSize: 10,
-    color: '#94a3b8',
-    fontWeight: '600',
-  },
-  optionalBadgeSmall: {
-    fontSize: 9,
-    color: '#94a3b8',
-    fontWeight: '600',
+    color: '#334155',
+    marginBottom: 6,
   },
   inputContainer: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: '#cbd5e1',
+    borderRadius: 12,
     backgroundColor: '#ffffff',
-    paddingHorizontal: 12,
-    height: 44,
+    paddingHorizontal: 14,
+    height: 48,
     justifyContent: 'center',
   },
   input: {
     fontSize: 14,
     color: '#0f172a',
   },
-  helperText: {
-    fontSize: 11,
-    color: '#94a3b8',
-    marginTop: 4,
-  },
   avatarRow: {
     flexDirection: 'row',
-    gap: 8,
+    alignItems: 'center',
+    gap: 10,
     marginTop: 4,
   },
   avatarPill: {
-    flex: 1,
+    width: 44,
     height: 44,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#f8fafc',
+    borderRadius: 22,
+    backgroundColor: '#f1f5f9',
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 2,
+    borderColor: 'transparent',
   },
   avatarPillActive: {
     borderColor: '#2563eb',
     backgroundColor: '#eff6ff',
-    borderWidth: 2,
   },
   avatarEmoji: {
     fontSize: 20,
   },
   accordionCard: {
     backgroundColor: '#ffffff',
-    borderRadius: 14,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: '#eef2f6',
+    borderColor: '#e2e8f0',
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    elevation: 2,
     marginBottom: 20,
     overflow: 'hidden',
   },
@@ -561,30 +523,29 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
+    padding: 18,
   },
   accordionTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
     color: '#0f172a',
+    marginBottom: 2,
   },
   accordionSubtitle: {
-    fontSize: 11,
+    fontSize: 12,
     color: '#64748b',
-    marginTop: 2,
-    fontWeight: '500',
   },
-  accordionChevron: {
-    fontSize: 11,
-    color: '#2563eb',
-    fontWeight: 'bold',
+  accordionArrow: {
+    fontSize: 12,
+    color: '#94a3b8',
+    marginLeft: 8,
   },
-  accordionContent: {
-    paddingHorizontal: 16,
-    paddingBottom: 16,
+  accordionBody: {
+    paddingHorizontal: 18,
+    paddingBottom: 18,
     borderTopWidth: 1,
     borderTopColor: '#f1f5f9',
-    paddingTop: 14,
+    paddingTop: 16,
   },
   twoColumnRow: {
     flexDirection: 'row',
@@ -597,76 +558,58 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    marginTop: 4,
+    marginTop: 6,
   },
   checkbox: {
     width: 20,
     height: 20,
-    borderRadius: 5,
+    borderRadius: 6,
     borderWidth: 1.5,
     borderColor: '#cbd5e1',
+    backgroundColor: '#ffffff',
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#ffffff',
   },
   checkboxActive: {
-    backgroundColor: '#1d64f2',
-    borderColor: '#1d64f2',
+    backgroundColor: '#2563eb',
+    borderColor: '#2563eb',
   },
   checkmark: {
     color: '#ffffff',
     fontSize: 12,
-    fontWeight: 'bold',
+    fontWeight: '800',
   },
   checkboxLabel: {
     fontSize: 13,
     color: '#475569',
   },
-  errorBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fef2f2',
-    borderWidth: 1,
-    borderColor: '#fecaca',
-    borderRadius: 8,
-    padding: 10,
-    marginBottom: 16,
-    gap: 8,
-  },
-  errorIcon: {
-    fontSize: 14,
-  },
-  errorText: {
-    flex: 1,
-    fontSize: 12,
-    color: '#dc2626',
-    fontWeight: '600',
-  },
   primaryButton: {
-    backgroundColor: '#1d64f2',
-    height: 48,
-    borderRadius: 10,
+    backgroundColor: '#2563eb',
+    height: 50,
+    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 12,
-    elevation: 2,
+    shadowColor: '#2563eb',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 3,
   },
   buttonDisabled: {
-    opacity: 0.7,
+    opacity: 0.65,
   },
   primaryButtonText: {
     color: '#ffffff',
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: '700',
-    letterSpacing: 0.5,
   },
   returnButton: {
     alignItems: 'center',
-    paddingVertical: 8,
-    marginBottom: 14,
+    marginTop: 16,
+    paddingVertical: 6,
   },
   returnButtonText: {
-    fontSize: 12,
+    fontSize: 13,
     color: '#64748b',
     fontWeight: '600',
   },
@@ -674,15 +617,28 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingBottom: 24,
+    paddingVertical: 14,
   },
   switchAuthText: {
-    fontSize: 13,
+    fontSize: 14,
     color: '#64748b',
   },
   switchAuthLink: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '700',
-    color: '#1d64f2',
+    color: '#2563eb',
+  },
+  errorBanner: {
+    backgroundColor: '#fef2f2',
+    borderWidth: 1,
+    borderColor: '#fecaca',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+  },
+  errorText: {
+    fontSize: 13,
+    color: '#dc2626',
+    fontWeight: '500',
   },
 });

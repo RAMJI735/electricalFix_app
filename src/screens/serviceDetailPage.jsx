@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   StyleSheet,
   Text,
@@ -8,14 +8,18 @@ import {
   ActivityIndicator,
   RefreshControl,
   Image,
+  BackHandler,
 } from 'react-native';
-import { useServiceDetails } from '../hooks';
+import { useFocusEffect } from '@react-navigation/native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useServiceDetails, useSettings } from '../hooks';
 import { Skeleton } from '../components/Skeleton';
 import {
   BoltIcon,
   StarIcon,
   CheckCircleIcon,
   CartIcon,
+  ArrowLeftIcon,
 } from '../components/Icons';
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
@@ -31,8 +35,35 @@ export default function ServiceDetailPage({
 }) {
   const serviceId = route?.params?.serviceId || route?.params?.id || propServiceId;
   const initialService = route?.params?.initialService || route?.params?.service || propInitialService;
-  const onBack = propOnBack || (() => navigation?.goBack());
+  const onBack = useCallback(() => {
+    if (propOnBack) {
+      propOnBack();
+    } else if (navigation?.canGoBack && navigation.canGoBack()) {
+      navigation.goBack();
+    } else if (navigation?.navigate) {
+      navigation.navigate('MainTabs');
+    }
+  }, [propOnBack, navigation]);
+
+  useFocusEffect(
+    useCallback(() => {
+      const onBackPress = () => {
+        onBack();
+        return true;
+      };
+
+      const subscription = BackHandler.addEventListener(
+        'hardwareBackPress',
+        onBackPress
+      );
+
+      return () => subscription.remove();
+    }, [onBack])
+  );
   const { isInCart, addToCart } = useCart();
+  const { commerce } = useSettings();
+  const gstType = commerce?.gstType || 'exclusive';
+  const taxRate = commerce?.taxRate ?? 18;
   const { isAuthenticated } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
   const [added, setAdded] = useState(false);
@@ -48,15 +79,22 @@ export default function ServiceDetailPage({
     initialData: initialService || undefined,
   });
 
-
   const service = fetchedService || initialService;
   const loading = queryLoading && !service;
-  const error = queryError ? (queryError.message || 'Failed to load service details') : null;
+  const error = queryError ? (queryError.message || 'Failed to load details') : null;
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await refetch();
-    setRefreshing(false);
+    try {
+      await Promise.race([
+        refetch(),
+        new Promise((resolve) => setTimeout(resolve, 2000)),
+      ]);
+    } catch (_e) {
+      // Non-fatal
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const inCart = Boolean((service && isInCart(service)) || added);
@@ -95,7 +133,7 @@ export default function ServiceDetailPage({
           _id: service._id || service.id,
           name: service.serviceName || service.name,
           price: service.price,
-          brand: service.brand || 'VOLTLINE',
+          brand: service.brand || 'Voltline',
           type: service.type || 'service',
           image: service.image || '',
           category: typeof service.category === 'object' ? service.category?._id : (service.category || ''),
@@ -129,11 +167,7 @@ export default function ServiceDetailPage({
   const categoryName =
     typeof service?.category === 'object'
       ? service?.category?.categoryName
-      : 'Electrical';
-  const categoryIcon =
-    typeof service?.category === 'object'
-      ? service?.category?.icon || '⚡'
-      : '⚡';
+      : (service?.category || 'Electrical');
 
   const currentPrice = Number(service?.price) || 0;
   const origPrice =
@@ -145,8 +179,10 @@ export default function ServiceDetailPage({
       ? Math.round(((origPrice - currentPrice) / origPrice) * 100)
       : 0;
 
+  const isServiceType = service?.type === 'service';
+
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       {/* Top Navigation Bar */}
       <View style={styles.topBar}>
         <TouchableOpacity
@@ -154,17 +190,14 @@ export default function ServiceDetailPage({
           onPress={onBack}
           activeOpacity={0.7}
         >
-          <Text style={styles.backButtonArrow}>←</Text>
-          <Text style={styles.backButtonText}>Back</Text>
+          <ArrowLeftIcon size={18} color="#0f172a" />
         </TouchableOpacity>
 
         <Text style={styles.topBarTitle} numberOfLines={1}>
-          Service Details
+          {isServiceType ? 'Service Details' : 'Product Details'}
         </Text>
 
-        <View style={styles.verifiedHeaderBadge}>
-          <Text style={styles.verifiedHeaderText}>ISI CERTIFIED</Text>
-        </View>
+        <View style={styles.headerSpacer} />
       </View>
 
       {/* Main Body */}
@@ -174,29 +207,26 @@ export default function ServiceDetailPage({
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          {/* Skeleton placeholders */}
-          <Skeleton width={120} height={22} borderRadius={6} style={{ marginBottom: 12 }} />
-          <Skeleton width="90%" height={26} borderRadius={6} style={{ marginBottom: 8 }} />
-          <Skeleton width="60%" height={18} borderRadius={6} style={{ marginBottom: 20 }} />
-
-          {/* Specs grid skeleton */}
+          <Skeleton width="100%" height={220} borderRadius={18} style={{ marginBottom: 16 }} />
+          <Skeleton width={100} height={20} borderRadius={6} style={{ marginBottom: 10 }} />
+          <Skeleton width="85%" height={26} borderRadius={6} style={{ marginBottom: 8 }} />
+          <Skeleton width="50%" height={18} borderRadius={6} style={{ marginBottom: 18 }} />
           <View style={styles.specsRow}>
-            <Skeleton width="30%" height={70} borderRadius={10} />
-            <Skeleton width="30%" height={70} borderRadius={10} />
-            <Skeleton width="30%" height={70} borderRadius={10} />
+            <Skeleton width="30%" height={70} borderRadius={14} />
+            <Skeleton width="30%" height={70} borderRadius={14} />
+            <Skeleton width="30%" height={70} borderRadius={14} />
           </View>
-
-          <Skeleton width="100%" height={100} borderRadius={12} style={{ marginVertical: 20 }} />
-          <Skeleton width="100%" height={150} borderRadius={12} />
+          <Skeleton width="100%" height={120} borderRadius={16} style={{ marginVertical: 16 }} />
         </ScrollView>
       ) : error ? (
         <View style={styles.centerContainer}>
           <Text style={styles.errorEmoji}>⚠️</Text>
-          <Text style={styles.errorTitle}>Unable to load service details</Text>
+          <Text style={styles.errorTitle}>Unable to load details</Text>
           <Text style={styles.errorSubtitle}>{error}</Text>
           <TouchableOpacity
             style={styles.retryButton}
             onPress={() => refetch()}
+            activeOpacity={0.7}
           >
             <Text style={styles.retryButtonText}>Retry</Text>
           </TouchableOpacity>
@@ -215,7 +245,7 @@ export default function ServiceDetailPage({
             />
           }
         >
-          {/* Hero Product/Service Image */}
+          {/* Hero Image */}
           {service?.image ? (
             <View style={styles.heroImageContainer}>
               <Image
@@ -231,53 +261,36 @@ export default function ServiceDetailPage({
             </View>
           ) : null}
 
-          {/* Category & Status Pill */}
-          <View style={styles.badgeRow}>
-            <View style={styles.categoryBadge}>
-              <Text style={styles.categoryBadgeIcon}>{categoryIcon}</Text>
-              <Text style={styles.categoryBadgeText}>{categoryName.toUpperCase()}</Text>
+          {/* Breadcrumb / Category & Rating */}
+          <View style={styles.metaRow}>
+            <View style={styles.categoryPill}>
+              <Text style={styles.categoryPillText}>{categoryName}</Text>
             </View>
 
-            <View style={styles.typeBadge}>
-              <BoltIcon size={12} color="#1d4ed8" />
-              <Text style={styles.typeBadgeText}>
-                {service?.badge || (service?.type === 'product' ? 'PRODUCT' : 'SERVICE')}
+            <View style={styles.ratingBadge}>
+              <StarIcon size={13} color="#f59e0b" />
+              <Text style={styles.ratingText}>{service?.rating || 4.8}</Text>
+              <Text style={styles.ratingReviewsText}>
+                ({service?.reviewsCount || service?.reviews || 48})
               </Text>
-            </View>
-
-            <View style={styles.statusBadge}>
-              <View style={styles.onlineDot} />
-              <Text style={styles.statusBadgeText}>ACTIVE</Text>
             </View>
           </View>
 
           {/* Title */}
           <Text style={styles.serviceName}>{service?.serviceName || service?.name}</Text>
 
-          {/* Brand & Model Row */}
-          {(service?.brand || service?.model) && (
-            <View style={styles.metaRow}>
-              {!!service?.brand && (
-                <View style={styles.metaPill}>
-                  <Text style={styles.metaLabel}>BRAND:</Text>
-                  <Text style={styles.metaValue}>{service.brand}</Text>
-                </View>
-              )}
-              {!!service?.model && (
-                <View style={styles.metaPill}>
-                  <Text style={styles.metaLabel}>MODEL:</Text>
-                  <Text style={styles.metaValue}>{service.model}</Text>
-                </View>
-              )}
-            </View>
+          {/* Brand/Model subtitle */}
+          {!!service?.brand && (
+            <Text style={styles.brandSubtitle}>
+              By <Text style={styles.brandHighlight}>{service.brand}</Text>
+              {service?.model ? ` • Model: ${service.model}` : ''}
+            </Text>
           )}
 
           {/* Price Box */}
           <View style={styles.priceCard}>
             <View>
-              <Text style={styles.priceLabel}>
-                {service?.type === 'product' ? 'Product Price' : 'Service Cost'}
-              </Text>
+              <Text style={styles.priceLabel}>Price</Text>
               <View style={styles.priceRow}>
                 <Text style={styles.priceValue}>₹{currentPrice}</Text>
                 {origPrice > currentPrice && (
@@ -285,23 +298,17 @@ export default function ServiceDetailPage({
                 )}
                 {discountPercent > 0 && (
                   <View style={styles.discountPill}>
-                    <Text style={styles.discountText}>{discountPercent}% OFF</Text>
+                    <Text style={styles.discountText}>{discountPercent}% off</Text>
                   </View>
                 )}
               </View>
-              <Text style={styles.taxSubtext}>Includes 18% GST • Verified ISI Quality</Text>
-            </View>
-
-            <View style={styles.ratingBox}>
-              <StarIcon size={16} color="#f59e0b" />
-              <Text style={styles.ratingNumber}>{service?.rating || 4.8}</Text>
-              <Text style={styles.ratingReviews}>
-                {service?.reviewsCount || service?.reviews || 48}+ reviews
+              <Text style={styles.taxSubtext}>
+                {gstType === 'inclusive' ? `Inclusive of ${taxRate}% GST` : `+ ${taxRate}% GST extra at checkout`}
               </Text>
             </View>
           </View>
 
-          {/* 3-Column Highlights Grid */}
+          {/* 3 Highlights */}
           <View style={styles.specsRow}>
             <View style={styles.specBox}>
               <Text style={styles.specIcon}>⏱</Text>
@@ -321,59 +328,59 @@ export default function ServiceDetailPage({
 
             <View style={styles.specBox}>
               <Text style={styles.specIcon}>👨‍🔧</Text>
-              <Text style={styles.specBoxTitle}>Electrician</Text>
+              <Text style={styles.specBoxTitle}>Technician</Text>
               <Text style={styles.specBoxValue}>Verified Pro</Text>
             </View>
           </View>
 
-          {/* Service Description Section */}
+          {/* Description Section */}
           <View style={styles.sectionCard}>
             <Text style={styles.sectionHeader}>
-              {service?.type === 'product' ? 'Product Overview' : 'Service Overview'}
+              {isServiceType ? 'About this Service' : 'Product Overview'}
             </Text>
             <Text style={styles.descriptionText}>
               {service?.description ||
-                `Complete ${service?.serviceName || 'electrical service'} provided by licensed electricians. Includes diagnostic testing, high-voltage safety clearance, genuine parts replacement, and official ISI certification documentation.`}
+                `Professional ${service?.serviceName || 'electrical service'} provided by certified electricians. Includes full diagnostic inspection, safety load clearance, and verified genuine replacement parts.`}
             </Text>
           </View>
 
-          {/* What's Included / Key Features Checklist */}
+          {/* What's Included */}
           <View style={styles.sectionCard}>
             <Text style={styles.sectionHeader}>
-              {service?.type === 'product' ? 'Key Features & Standards' : "What's Included"}
+              {isServiceType ? "What's Included" : 'Key Features'}
             </Text>
             <View style={styles.checklist}>
               {Array.isArray(service?.features) && service.features.length > 0 ? (
                 service.features.map((feat, idx) => (
                   <View key={idx} style={styles.checkItem}>
-                    <CheckCircleIcon size={18} color="#10b981" />
+                    <CheckCircleIcon size={16} color="#10b981" />
                     <Text style={styles.checkItemText}>{feat}</Text>
                   </View>
                 ))
               ) : (
                 <>
                   <View style={styles.checkItem}>
-                    <CheckCircleIcon size={18} color="#10b981" />
+                    <CheckCircleIcon size={16} color="#10b981" />
                     <Text style={styles.checkItemText}>
-                      On-site comprehensive inspection & safety testing
+                      On-site inspection and electrical safety testing
                     </Text>
                   </View>
                   <View style={styles.checkItem}>
-                    <CheckCircleIcon size={18} color="#10b981" />
+                    <CheckCircleIcon size={16} color="#10b981" />
                     <Text style={styles.checkItemText}>
-                      Certified electrical technician equipped with digital testers
+                      Certified technician with digital diagnostic equipment
                     </Text>
                   </View>
                   <View style={styles.checkItem}>
-                    <CheckCircleIcon size={18} color="#10b981" />
+                    <CheckCircleIcon size={16} color="#10b981" />
                     <Text style={styles.checkItemText}>
-                      100% genuine replacement components with manufacturer warranty
+                      Genuine replacement components with warranty
                     </Text>
                   </View>
                   <View style={styles.checkItem}>
-                    <CheckCircleIcon size={18} color="#10b981" />
+                    <CheckCircleIcon size={16} color="#10b981" />
                     <Text style={styles.checkItemText}>
-                      Clean up of installation debris & post-repair load testing
+                      Post-repair testing and cleanup
                     </Text>
                   </View>
                 </>
@@ -381,27 +388,27 @@ export default function ServiceDetailPage({
             </View>
           </View>
 
-          {/* Voltline Protection Banner */}
+          {/* Assurance Banner */}
           <View style={styles.protectionBanner}>
             <View style={styles.protectionHeader}>
               <CheckCircleIcon size={18} color="#2563eb" />
-              <Text style={styles.protectionTitle}>Voltline SafeGuard Guarantee</Text>
+              <Text style={styles.protectionTitle}>Voltline Assurance</Text>
             </View>
             <Text style={styles.protectionDesc}>
-              Every repair is backed by a 90-day hassle-free service guarantee. If the issue reoccurs, our technician revisits at zero extra charge.
+              Backed by our 90-day hassle-free service warranty. If an issue reoccurs, our technician revisits at zero extra charge.
             </Text>
           </View>
 
-          <View style={{ height: 100 }} />
+          <View style={{ height: 110 }} />
         </ScrollView>
       )}
 
-      {/* Docked Bottom Bar */}
+      {/* Docked Bottom Action Bar */}
       {!loading && !error && service && (
         <View style={styles.bottomBar}>
           <View>
             <Text style={styles.bottomPriceLabel}>Total Price</Text>
-            <Text style={styles.bottomPrice}>₹{service.price}</Text>
+            <Text style={styles.bottomPrice}>₹{currentPrice}</Text>
           </View>
 
           <TouchableOpacity
@@ -416,29 +423,29 @@ export default function ServiceDetailPage({
             onPress={handleAdd}
           >
             {adding ? (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <View style={styles.buttonInnerRow}>
                 <ActivityIndicator size="small" color="#ffffff" />
-                <Text style={styles.addCartBtnText}>ADDING TO CART...</Text>
+                <Text style={styles.addCartBtnText}>Adding...</Text>
               </View>
             ) : inCart ? (
-              <>
+              <View style={styles.buttonInnerRow}>
                 <CartIcon size={16} color="#ffffff" focused />
-                <Text style={styles.addCartBtnText}>GO TO CART</Text>
-              </>
+                <Text style={styles.addCartBtnText}>Go to Cart</Text>
+              </View>
             ) : isInStock ? (
-              <>
-                <BoltIcon size={16} color="#ffffff" />
+              <View style={styles.buttonInnerRow}>
+                <BoltIcon size={15} color="#ffffff" />
                 <Text style={styles.addCartBtnText}>
-                  {service?.type === 'service' ? 'BOOK SERVICE' : 'ADD TO CART'}
+                  {isServiceType ? 'Book Service' : 'Add to Cart'}
                 </Text>
-              </>
+              </View>
             ) : (
-              <Text style={styles.addCartBtnText}>OUT OF STOCK</Text>
+              <Text style={styles.addCartBtnText}>Out of Stock</Text>
             )}
           </TouchableOpacity>
         </View>
       )}
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -451,61 +458,44 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
     backgroundColor: '#ffffff',
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: '#f1f5f9',
   },
   backButton: {
-    flexDirection: 'row',
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 4,
-    paddingRight: 8,
-    gap: 4,
-  },
-  backButtonArrow: {
-    fontSize: 18,
-    color: '#2563eb',
-    fontWeight: '700',
-  },
-  backButtonText: {
-    fontSize: 14,
-    color: '#2563eb',
-    fontWeight: '600',
   },
   topBarTitle: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '700',
     color: '#0f172a',
-    maxWidth: 160,
+    letterSpacing: -0.3,
   },
-  verifiedHeaderBadge: {
-    backgroundColor: '#f0fdf4',
-    borderWidth: 1,
-    borderColor: '#bbf7d0',
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 6,
-  },
-  verifiedHeaderText: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: '#15803d',
-    letterSpacing: 0.5,
+  headerSpacer: {
+    width: 40,
   },
   scrollArea: {
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 110,
   },
   heroImageContainer: {
     width: '100%',
-    height: 220,
+    height: 240,
     backgroundColor: '#ffffff',
-    borderRadius: 16,
+    borderRadius: 20,
     overflow: 'hidden',
     justifyContent: 'center',
     alignItems: 'center',
@@ -515,227 +505,168 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   heroImage: {
-    width: '90%',
-    height: '90%',
+    width: '88%',
+    height: '88%',
   },
   imageDiscountBadge: {
     position: 'absolute',
-    top: 12,
-    right: 12,
+    top: 14,
+    left: 14,
     backgroundColor: '#16a34a',
     paddingVertical: 4,
     paddingHorizontal: 8,
-    borderRadius: 6,
+    borderRadius: 8,
   },
   imageDiscountText: {
     color: '#ffffff',
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '800',
   },
-  badgeRow: {
+  metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 10,
+    justifyContent: 'space-between',
+    marginBottom: 8,
   },
-  categoryBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  categoryPill: {
     backgroundColor: '#eff6ff',
-    borderWidth: 1,
-    borderColor: '#dbeafe',
     paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 6,
-    gap: 4,
+    paddingHorizontal: 10,
+    borderRadius: 8,
   },
-  categoryBadgeIcon: {
+  categoryPillText: {
     fontSize: 12,
+    fontWeight: '700',
+    color: '#2563eb',
   },
-  categoryBadgeText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#1d4ed8',
-  },
-  typeBadge: {
+  ratingBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f8fafc',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
+    gap: 4,
+    backgroundColor: '#fffbeb',
     paddingVertical: 4,
     paddingHorizontal: 8,
-    borderRadius: 6,
-    gap: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#fef3c7',
   },
-  typeBadgeText: {
-    fontSize: 10,
+  ratingText: {
+    fontSize: 12,
     fontWeight: '700',
-    color: '#334155',
+    color: '#92400e',
   },
-  statusBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    marginLeft: 'auto',
-  },
-  onlineDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#16a34a',
-  },
-  statusBadgeText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#15803d',
+  ratingReviewsText: {
+    fontSize: 11,
+    color: '#b45309',
   },
   serviceName: {
     fontSize: 22,
     fontWeight: '800',
     color: '#0f172a',
+    letterSpacing: -0.4,
     lineHeight: 28,
-    marginBottom: 8,
+    marginBottom: 4,
   },
-  metaRow: {
-    flexDirection: 'row',
-    gap: 8,
+  brandSubtitle: {
+    fontSize: 13,
+    color: '#64748b',
     marginBottom: 16,
   },
-  metaPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f1f5f9',
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 6,
-    gap: 4,
-  },
-  metaLabel: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: '#64748b',
-  },
-  metaValue: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#1e293b',
+  brandHighlight: {
+    fontWeight: '600',
+    color: '#334155',
   },
   priceCard: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
     backgroundColor: '#ffffff',
-    borderRadius: 14,
-    padding: 16,
+    borderRadius: 18,
+    padding: 18,
     borderWidth: 1,
     borderColor: '#e2e8f0',
     marginBottom: 16,
-    shadowColor: '#0f172a',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 2,
   },
   priceLabel: {
     fontSize: 11,
     fontWeight: '600',
     color: '#64748b',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
     marginBottom: 2,
   },
   priceRow: {
     flexDirection: 'row',
     alignItems: 'baseline',
-    gap: 8,
+    gap: 10,
   },
   priceValue: {
-    fontSize: 24,
+    fontSize: 26,
     fontWeight: '900',
     color: '#0f172a',
+    letterSpacing: -0.5,
   },
   priceStrikethrough: {
-    fontSize: 14,
+    fontSize: 15,
     color: '#94a3b8',
     textDecorationLine: 'line-through',
   },
   discountPill: {
-    backgroundColor: '#fef3c7',
-    paddingVertical: 2,
-    paddingHorizontal: 6,
-    borderRadius: 4,
+    backgroundColor: '#dcfce7',
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 6,
   },
   discountText: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: '#b45309',
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#15803d',
   },
   taxSubtext: {
-    fontSize: 10,
-    color: '#16a34a',
-    fontWeight: '600',
-    marginTop: 4,
-  },
-  ratingBox: {
-    alignItems: 'center',
-    backgroundColor: '#f8fafc',
-    padding: 10,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-  ratingNumber: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#0f172a',
-    marginTop: 2,
-  },
-  ratingReviews: {
-    fontSize: 9,
+    fontSize: 11,
     color: '#64748b',
-    marginTop: 2,
+    marginTop: 4,
   },
   specsRow: {
     flexDirection: 'row',
     gap: 10,
-    marginBottom: 16,
+    marginBottom: 14,
   },
   specBox: {
     flex: 1,
     backgroundColor: '#ffffff',
-    borderRadius: 12,
+    borderRadius: 14,
     padding: 12,
     alignItems: 'center',
     borderWidth: 1,
     borderColor: '#e2e8f0',
   },
   specIcon: {
-    fontSize: 20,
+    fontSize: 18,
     marginBottom: 4,
   },
   specBoxTitle: {
-    fontSize: 10,
+    fontSize: 11,
     color: '#64748b',
-    fontWeight: '600',
+    fontWeight: '500',
   },
   specBoxValue: {
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: '700',
     color: '#0f172a',
     marginTop: 2,
     textAlign: 'center',
   },
   sectionCard: {
     backgroundColor: '#ffffff',
-    borderRadius: 14,
+    borderRadius: 16,
     padding: 16,
     borderWidth: 1,
     borderColor: '#e2e8f0',
     marginBottom: 14,
   },
   sectionHeader: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '700',
     color: '#0f172a',
+    letterSpacing: -0.2,
     marginBottom: 8,
   },
   descriptionText: {
@@ -759,10 +690,10 @@ const styles = StyleSheet.create({
   },
   protectionBanner: {
     backgroundColor: '#eff6ff',
-    borderRadius: 14,
-    padding: 16,
+    borderRadius: 18,
+    padding: 18,
     borderWidth: 1,
-    borderColor: '#bfdbfe',
+    borderColor: '#dbeafe',
     marginBottom: 16,
   },
   protectionHeader: {
@@ -772,13 +703,13 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   protectionTitle: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#1e40af',
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1d4ed8',
   },
   protectionDesc: {
     fontSize: 12,
-    color: '#1e3a8a',
+    color: '#1e40af',
     lineHeight: 18,
   },
   centerContainer: {
@@ -807,7 +738,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#2563eb',
     paddingVertical: 10,
     paddingHorizontal: 20,
-    borderRadius: 8,
+    borderRadius: 10,
   },
   retryButtonText: {
     color: '#ffffff',
@@ -821,51 +752,60 @@ const styles = StyleSheet.create({
     right: 0,
     backgroundColor: '#ffffff',
     borderTopWidth: 1,
-    borderTopColor: '#e2e8f0',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    borderTopColor: '#f1f5f9',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     shadowColor: '#0f172a',
     shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.06,
+    shadowOpacity: 0.05,
     shadowRadius: 10,
     elevation: 8,
   },
   bottomPriceLabel: {
-    fontSize: 10,
+    fontSize: 11,
     color: '#64748b',
-    fontWeight: '600',
+    fontWeight: '500',
   },
   bottomPrice: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '900',
     color: '#0f172a',
+    letterSpacing: -0.4,
   },
-  addCartBtn: {
+  buttonInnerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#2563eb',
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 10,
     gap: 8,
+  },
+  addCartBtn: {
+    backgroundColor: '#2563eb',
+    paddingVertical: 13,
+    paddingHorizontal: 24,
+    borderRadius: 14,
+    shadowColor: '#2563eb',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 3,
   },
   addCartBtnSuccess: {
     backgroundColor: '#16a34a',
+    shadowColor: '#16a34a',
   },
   addCartBtnDisabled: {
     backgroundColor: '#94a3b8',
+    shadowOpacity: 0,
+    elevation: 0,
   },
   addCartBtnLoading: {
-    opacity: 0.85,
-    paddingHorizontal: 16,
+    opacity: 0.8,
   },
   addCartBtnText: {
     color: '#ffffff',
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 0.5,
+    fontSize: 14,
+    fontWeight: '700',
   },
 });

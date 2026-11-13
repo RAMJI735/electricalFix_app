@@ -121,10 +121,6 @@ export default function HomeScreen({
             },
           ];
 
-          if (isRefresh) {
-            await queryClient.invalidateQueries({ queryKey });
-          }
-
           const res = await queryClient.fetchQuery({
             queryKey,
             queryFn: () =>
@@ -134,7 +130,7 @@ export default function HomeScreen({
                 limit: PAGE_SIZE,
                 search: searchQuery.trim(),
               }),
-            staleTime: 1000 * 60, // 1 minute: instant cache, background refresh
+            staleTime: isRefresh ? 0 : 1000 * 60,
           });
           backendItems = res?.items || [];
           hasNext = Boolean(res?.hasNextPage);
@@ -216,12 +212,20 @@ export default function HomeScreen({
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([
-      refetchSettings(),
-      refetchCategories(),
-      loadProductsPage(1, true),
-    ]);
-    setRefreshing(false);
+    try {
+      await Promise.race([
+        Promise.allSettled([
+          refetchSettings(),
+          refetchCategories(),
+          loadProductsPage(1, true),
+        ]),
+        new Promise((resolve) => setTimeout(resolve, 2000)),
+      ]);
+    } catch (_e) {
+      // Non-fatal
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const handleLoadMore = () => {
@@ -791,14 +795,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8fafc',
   },
   contentContainer: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 40,
   },
   topBar: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 18,
   },
   brandRow: {
     flexDirection: 'row',
@@ -807,9 +812,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   brandBadge: {
-    width: 38,
-    height: 38,
-    borderRadius: 8,
+    width: 42,
+    height: 42,
+    borderRadius: 12,
     backgroundColor: '#1d64f2',
     justifyContent: 'center',
     alignItems: 'center',
@@ -857,12 +862,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#ffffff',
-    borderRadius: 10,
-    paddingHorizontal: 12,
+    borderRadius: 12,
+    paddingHorizontal: 14,
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    marginBottom: 16,
-    height: 44,
+    marginBottom: 18,
+    height: 46,
   },
   searchInput: {
     flex: 1,
@@ -1028,8 +1033,8 @@ const styles = StyleSheet.create({
   },
   productCard: {
     backgroundColor: '#ffffff',
-    borderRadius: 14,
-    padding: 14,
+    borderRadius: 18,
+    padding: 18,
     borderWidth: 1,
     borderColor: '#e2e8f0',
     shadowColor: '#0f172a',
@@ -1037,7 +1042,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.04,
     shadowRadius: 6,
     elevation: 1,
-    marginBottom: 12,
+    marginBottom: 16,
   },
   productImageContainer: {
     width: '100%',

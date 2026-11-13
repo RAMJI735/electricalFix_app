@@ -110,13 +110,21 @@ export default function ProfileScreen({
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([
-      isAuthenticated ? refetchOrders() : Promise.resolve(),
-      isAuthenticated ? refetchAddresses() : Promise.resolve(),
-      refetchSettings(),
-      isAuthenticated && refreshProfile ? refreshProfile() : Promise.resolve(),
-    ]);
-    setRefreshing(false);
+    try {
+      await Promise.race([
+        Promise.allSettled([
+          isAuthenticated ? refetchOrders() : Promise.resolve(),
+          isAuthenticated ? refetchAddresses() : Promise.resolve(),
+          refetchSettings(),
+          isAuthenticated && refreshProfile ? refreshProfile() : Promise.resolve(),
+        ]),
+        new Promise((resolve) => setTimeout(resolve, 2000)),
+      ]);
+    } catch (_e) {
+      // Non-fatal
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const displayName = user?.name || (isAuthenticated ? 'Electrical Contractor' : 'Guest Contractor');
@@ -583,27 +591,27 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8fafc',
   },
   content: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
+    paddingHorizontal: 20,
+    paddingTop: 16,
     paddingBottom: 40,
   },
   header: {
-    marginBottom: 16,
+    marginBottom: 18,
   },
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   backBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     backgroundColor: '#ffffff',
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    marginRight: 10,
+    marginRight: 12,
   },
   eyebrow: {
     fontSize: 10,
@@ -620,8 +628,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#ffffff',
-    borderRadius: 14,
-    padding: 16,
+    borderRadius: 18,
+    padding: 20,
     borderWidth: 1,
     borderColor: '#e2e8f0',
     marginBottom: 16,
@@ -706,14 +714,14 @@ const styles = StyleSheet.create({
   },
   statsRow: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 12,
     marginBottom: 16,
   },
   statBox: {
     flex: 1,
     backgroundColor: '#ffffff',
-    borderRadius: 12,
-    padding: 12,
+    borderRadius: 16,
+    padding: 14,
     borderWidth: 1,
     borderColor: '#e2e8f0',
     alignItems: 'center',
@@ -731,8 +739,8 @@ const styles = StyleSheet.create({
   },
   menuSection: {
     backgroundColor: '#ffffff',
-    borderRadius: 14,
-    padding: 16,
+    borderRadius: 18,
+    padding: 18,
     borderWidth: 1,
     borderColor: '#e2e8f0',
     marginBottom: 16,

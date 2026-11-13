@@ -17,6 +17,7 @@ const getApiBaseUrl = () => {
 export const api = axios.create({
   baseURL: getApiBaseUrl(),
   withCredentials: true,
+  timeout: 10000,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -25,11 +26,11 @@ export const api = axios.create({
 // In-memory active token
 let currentAuthToken = null;
 
-// Helper to get active token across all tiers (Memory -> Session -> Local -> AsyncStorage)
+// Helper to get active token across tiers (Memory -> SessionStorage -> AsyncStorage on Native)
 export const getActiveToken = async () => {
   if (currentAuthToken) return currentAuthToken;
   try {
-    // 1. Web sessionStorage (Explicit user request for session storage)
+    // 1. Web sessionStorage (token is strictly session-scoped on web)
     if (typeof window !== 'undefined' && window.sessionStorage) {
       const sessionTok =
         window.sessionStorage.getItem('voltline_auth_token') ||
@@ -39,31 +40,29 @@ export const getActiveToken = async () => {
         return sessionTok;
       }
     }
-    // 2. Web localStorage
+    // Purge any residual tokens in web localStorage
     if (typeof window !== 'undefined' && window.localStorage) {
-      const localTok =
-        window.localStorage.getItem('voltline_auth_token') ||
-        window.localStorage.getItem('token');
-      if (localTok) {
-        currentAuthToken = localTok;
-        return localTok;
+      window.localStorage.removeItem('voltline_auth_token');
+      window.localStorage.removeItem('token');
+    }
+    // 2. Native mobile platforms (iOS / Android) only.
+    // On web, AsyncStorage polyfills to localStorage, so do NOT use it for tokens on web.
+    if (Platform.OS !== 'web') {
+      const pairs = await AsyncStorage.multiGet(['voltline_auth_token', 'token']).catch(() => []);
+      for (const [, val] of pairs) {
+        if (val) {
+          currentAuthToken = val;
+          return val;
+        }
       }
     }
-    // 3. Native / Mobile AsyncStorage
-    const pairs = await AsyncStorage.multiGet(['voltline_auth_token', 'token']).catch(() => []);
-    for (const [, val] of pairs) {
-      if (val) {
-        currentAuthToken = val;
-        return val;
-      }
-    }
-  } catch (e) {
+  } catch (_e) {
     // Ignore storage errors
   }
   return null;
 };
 
-// Helper to set authorization token dynamically across all storage tiers
+// Helper to set authorization token dynamically (SessionStorage on Web, AsyncStorage on Native)
 export const setAuthToken = (token) => {
   currentAuthToken = token || null;
   if (token) {
@@ -74,16 +73,21 @@ export const setAuthToken = (token) => {
           window.sessionStorage.setItem('voltline_auth_token', token);
           window.sessionStorage.setItem('token', token);
         }
+        // Ensure token is NEVER saved in localStorage on web
         if (window.localStorage) {
-          window.localStorage.setItem('voltline_auth_token', token);
-          window.localStorage.setItem('token', token);
+          window.localStorage.removeItem('voltline_auth_token');
+          window.localStorage.removeItem('token');
         }
       }
-      AsyncStorage.multiSet([
-        ['voltline_auth_token', token],
-        ['token', token],
-      ]).catch(() => {});
-    } catch (e) {}
+      // Only persist tokens in AsyncStorage on native mobile platforms (iOS / Android).
+      // On web, AsyncStorage maps directly to localStorage, so we do NOT write tokens to it.
+      if (Platform.OS !== 'web') {
+        AsyncStorage.multiSet([
+          ['voltline_auth_token', token],
+          ['token', token],
+        ]).catch(() => {});
+      }
+    } catch (_e) {}
   } else {
     delete api.defaults.headers.common['Authorization'];
     try {
@@ -92,13 +96,16 @@ export const setAuthToken = (token) => {
           window.sessionStorage.removeItem('voltline_auth_token');
           window.sessionStorage.removeItem('token');
         }
+        // Purge any legacy token from localStorage
         if (window.localStorage) {
           window.localStorage.removeItem('voltline_auth_token');
           window.localStorage.removeItem('token');
         }
       }
-      AsyncStorage.multiRemove(['voltline_auth_token', 'token']).catch(() => {});
-    } catch (e) {}
+      if (Platform.OS !== 'web') {
+        AsyncStorage.multiRemove(['voltline_auth_token', 'token']).catch(() => {});
+      }
+    } catch (_e) {}
   }
 };
 

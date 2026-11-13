@@ -16,7 +16,7 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
 import { ELECTRICAL_CATEGORIES } from '../constants/mockData';
-import { useCategories } from '../hooks';
+import { useCategories, useSettings } from '../hooks';
 import CategoryService from '../../services/categoryService';
 import { useCart } from '../context/CartContext';
 import {
@@ -45,6 +45,9 @@ export default function ShopScreen({
   const currentCategory = route?.params?.categoryId || route?.params?.category || propInitialCategory || 'all';
   const queryClient = useQueryClient();
   const { isInCart } = useCart();
+  const { commerce } = useSettings();
+  const gstType = commerce?.gstType || 'exclusive';
+  const taxRate = commerce?.taxRate ?? 18;
 
   const handleBack = useCallback(() => {
     if (propOnBack) {
@@ -129,15 +132,11 @@ export default function ShopScreen({
 
         const queryKey = ['services', 'paginated', queryParams];
 
-        if (isRefresh) {
-          await queryClient.invalidateQueries({ queryKey });
-        }
-
         const response = await queryClient.fetchQuery({
           queryKey,
           queryFn: () =>
             CategoryService.getServicesPaginated(queryParams),
-          staleTime: 1000 * 60, // 1 minute
+          staleTime: isRefresh ? 0 : 1000 * 60,
         });
 
         const backendItems =
@@ -263,12 +262,16 @@ export default function ShopScreen({
 
   const onRefresh = async () => {
     setRefreshing(true);
-
     try {
-      await Promise.all([
-        refetchCategories(),
-        loadPage(1, true),
+      await Promise.race([
+        Promise.allSettled([
+          refetchCategories(),
+          loadPage(1, true),
+        ]),
+        new Promise((resolve) => setTimeout(resolve, 2000)),
       ]);
+    } catch (_e) {
+      // Non-fatal
     } finally {
       setRefreshing(false);
     }
@@ -369,7 +372,9 @@ export default function ShopScreen({
             </View>
 
             <Text style={styles.taxText}>
-              {isAvailable ? 'Inc. 18% GST • In Stock' : '⚠️ Currently Out of Stock'}
+              {isAvailable
+                ? `${gstType === 'inclusive' ? `Inc. ${taxRate}% GST` : `+ ${taxRate}% GST`} • In Stock`
+                : '⚠️ Currently Out of Stock'}
             </Text>
           </View>
 
@@ -606,9 +611,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 10,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 14,
   },
   headerLeft: {
     flexDirection: 'row',
@@ -616,15 +621,15 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   backBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     backgroundColor: '#ffffff',
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    marginRight: 10,
+    marginRight: 12,
   },
   eyebrow: {
     fontSize: 10,
@@ -654,13 +659,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#ffffff',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    marginHorizontal: 16,
-    marginBottom: 10,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    marginHorizontal: 20,
+    marginBottom: 14,
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    height: 42,
+    height: 46,
   },
   searchInput: {
     flex: 1,
@@ -676,11 +681,11 @@ const styles = StyleSheet.create({
   pillsWrapper: {
     borderBottomWidth: 1,
     borderBottomColor: '#f1f5f9',
-    paddingBottom: 8,
+    paddingBottom: 10,
   },
   pillsScroll: {
-    paddingHorizontal: 16,
-    gap: 8,
+    paddingHorizontal: 20,
+    gap: 10,
   },
   pill: {
     flexDirection: 'row',
@@ -688,9 +693,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 20,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 22,
     gap: 6,
   },
   pillActive: {
@@ -712,14 +717,15 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   productsContent: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    gap: 12,
+    paddingHorizontal: 20,
+    paddingTop: 14,
+    paddingBottom: 30,
+    gap: 16,
   },
   card: {
     backgroundColor: '#ffffff',
-    borderRadius: 14,
-    padding: 14,
+    borderRadius: 18,
+    padding: 18,
     borderWidth: 1,
     borderColor: '#e2e8f0',
     shadowColor: '#0f172a',

@@ -161,9 +161,17 @@ export default function CartScreen({
   const { commerce, refetch: refetchSettings } = useSettings();
   const { data: availableCoupons = [] } = useCoupons();
 
-  const freeDeliveryThreshold = commerce?.freeDeliveryThreshold ?? 2000;
-  const standardDeliveryFee = commerce?.standardDeliveryFee ?? 150;
+  const deliveryChargesEnabled = commerce?.deliveryCharges !== undefined
+    ? Boolean(commerce.deliveryCharges)
+    : false;
+  const freeDeliveryThreshold = commerce?.minPrice !== undefined
+    ? Number(commerce.minPrice)
+    : (commerce?.freeDeliveryThreshold ?? 100);
+  const standardDeliveryFee = commerce?.delivery_cost !== undefined
+    ? Number(commerce.delivery_cost)
+    : (commerce?.standardDeliveryFee ?? 50);
   const taxRatePercent = commerce?.taxRate ?? 18;
+  const gstType = commerce?.gstType || 'exclusive';
 
   // Computations
   const subtotal =
@@ -171,9 +179,23 @@ export default function CartScreen({
     cartItems.reduce((acc, item) => acc + item.price * (item.quantity || 1), 0);
   const discount = cart?.discount || (cart?.couponCode ? Math.round(subtotal * 0.1) : 0);
   const taxableAmount = Math.max(0, subtotal - discount);
-  const gst = cart?.tax !== undefined ? cart.tax : Math.round(taxableAmount * (taxRatePercent / 100));
-  const delivery = subtotal >= freeDeliveryThreshold || subtotal === 0 ? 0 : standardDeliveryFee;
-  const grandTotal = cart?.grandTotal || taxableAmount + gst + delivery;
+
+  // Delivery Cost Calculation
+  const delivery = !deliveryChargesEnabled
+    ? 0
+    : (subtotal >= freeDeliveryThreshold || subtotal === 0 ? 0 : standardDeliveryFee);
+
+  // GST Calculation (18% of taxable amount)
+  const gst = Math.round((taxableAmount * (taxRatePercent / 100)) * 100) / 100;
+  let grandTotal = 0;
+
+  if (gstType === 'inclusive') {
+    // Inclusive: catalog price already includes GST. Total payable is strictly the item cost (subtotal - discount) plus delivery fee.
+    grandTotal = Math.max(0, Math.round((taxableAmount + delivery) * 100) / 100);
+  } else {
+    // Exclusive: catalog price is before tax. GST is added on top.
+    grandTotal = Math.max(0, Math.round((taxableAmount + gst + delivery) * 100) / 100);
+  }
 
   const freeDeliveryProgress = Math.min(1, subtotal / freeDeliveryThreshold);
   const amountNeededForFreeDelivery = Math.max(0, freeDeliveryThreshold - subtotal);
@@ -331,6 +353,14 @@ export default function CartScreen({
         paymentMethod,
         deliveryNotes: deliveryNotes.trim(),
         couponCode: cart?.couponCode || '',
+        summary: {
+          subtotal,
+          discount,
+          tax: gst,
+          shippingFee: delivery,
+          grandTotal,
+          gstType,
+        },
         clearCartOnSuccess: true,
       };
 
@@ -370,15 +400,18 @@ export default function CartScreen({
     }
   };
 
-  // Refresh Handler
+  // Refresh Handler (parallel refresh with fast safety timeout)
   const onRefresh = async () => {
     setRefreshing(true);
     try {
-      await fetchCart();
-      if (user) {
-        await refetchAddresses();
-      }
-    } catch (e) {
+      await Promise.race([
+        Promise.allSettled([
+          fetchCart(),
+          user ? refetchAddresses() : Promise.resolve(),
+        ]),
+        new Promise((resolve) => setTimeout(resolve, 2000)),
+      ]);
+    } catch (_e) {
       // Non-fatal
     } finally {
       setRefreshing(false);
@@ -487,24 +520,35 @@ export default function CartScreen({
       </View>
 
       {/* Free Delivery Meter */}
-      <View style={styles.deliveryProgressCard}>
-        <View style={styles.deliveryProgressHeader}>
-          <Text style={styles.deliveryProgressTitle}>
-            {subtotal >= freeDeliveryThreshold
-              ? '🎉 FREE Site Delivery Unlocked!'
-              : `Add ₹${amountNeededForFreeDelivery} more for FREE Delivery`}
-          </Text>
-          <Text style={styles.deliveryProgressThreshold}>Goal: ₹2,000</Text>
+      {deliveryChargesEnabled ? (
+        <View style={styles.deliveryProgressCard}>
+          <View style={styles.deliveryProgressHeader}>
+            <Text style={styles.deliveryProgressTitle}>
+              {subtotal >= freeDeliveryThreshold
+                ? '🎉 FREE Site Delivery Unlocked!'
+                : `Add ₹${amountNeededForFreeDelivery} more for FREE Delivery`}
+            </Text>
+            <Text style={styles.deliveryProgressThreshold}>Goal: ₹{freeDeliveryThreshold}</Text>
+          </View>
+          <View style={styles.progressBarTrack}>
+            <View
+              style={[
+                styles.progressBarFill,
+                { width: `${Math.round(freeDeliveryProgress * 100)}%` },
+              ]}
+            />
+          </View>
         </View>
-        <View style={styles.progressBarTrack}>
-          <View
-            style={[
-              styles.progressBarFill,
-              { width: `${Math.round(freeDeliveryProgress * 100)}%` },
-            ]}
-          />
+      ) : (
+        <View style={[styles.deliveryProgressCard, { backgroundColor: '#f0fdf4', borderColor: '#bbf7d0' }]}>
+          <View style={styles.deliveryProgressHeader}>
+            <Text style={[styles.deliveryProgressTitle, { color: '#16a34a', fontWeight: '600' }]}>
+              🎉 FREE Site Delivery on all orders!
+            </Text>
+            <Text style={[styles.deliveryProgressThreshold, { color: '#16a34a' }]}>No minimum order</Text>
+          </View>
         </View>
-      </View>
+      )}
 
       {/* Cart Items List */}
       <ScrollView
@@ -738,8 +782,15 @@ export default function CartScreen({
           )}
 
           <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>GST (18% itemized)</Text>
-            <Text style={styles.summaryVal}>₹{gst}</Text>
+            <Text style={styles.summaryLabel}>
+              GST ({taxRatePercent}% {gstType === 'inclusive' ? 'included' : 'itemized'})
+            </Text>
+            <Text style={styles.summaryVal}>
+              ₹{gst}
+              {gstType === 'inclusive' && (
+                <Text style={{ fontSize: 11, color: '#16a34a', fontWeight: '500' }}> (Included)</Text>
+              )}
+            </Text>
           </View>
 
           <View style={styles.summaryRow}>
@@ -1148,7 +1199,9 @@ export default function CartScreen({
                   </View>
                 )}
                 <View style={styles.modalSummaryRow}>
-                  <Text style={styles.modalSummaryLabel}>GST (18%)</Text>
+                  <Text style={styles.modalSummaryLabel}>
+                    GST ({taxRatePercent}% {gstType === 'inclusive' ? 'included' : ''})
+                  </Text>
                   <Text style={styles.modalSummaryVal}>₹{gst}</Text>
                 </View>
                 <View style={styles.modalSummaryRow}>
@@ -1295,9 +1348,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 8,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 14,
   },
   headerLeft: {
     flexDirection: 'row',
@@ -1305,15 +1358,15 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   backBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     backgroundColor: '#ffffff',
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    marginRight: 10,
+    marginRight: 12,
   },
   eyebrow: {
     fontSize: 10,
@@ -1354,11 +1407,11 @@ const styles = StyleSheet.create({
     color: '#ef4444',
   },
   deliveryProgressCard: {
-    marginHorizontal: 16,
-    marginVertical: 6,
+    marginHorizontal: 20,
+    marginVertical: 8,
     backgroundColor: '#ffffff',
-    borderRadius: 10,
-    padding: 10,
+    borderRadius: 16,
+    padding: 14,
     borderWidth: 1,
     borderColor: '#e2e8f0',
   },
@@ -1391,9 +1444,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   itemsContent: {
-    paddingHorizontal: 16,
-    paddingTop: 6,
-    gap: 12,
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 40,
+    gap: 16,
   },
   updatingBanner: {
     flexDirection: 'row',
@@ -1411,8 +1465,8 @@ const styles = StyleSheet.create({
   },
   itemCard: {
     backgroundColor: '#ffffff',
-    borderRadius: 14,
-    padding: 14,
+    borderRadius: 18,
+    padding: 18,
     borderWidth: 1,
     borderColor: '#e2e8f0',
     shadowColor: '#0f172a',
@@ -1534,8 +1588,8 @@ const styles = StyleSheet.create({
   },
   couponCard: {
     backgroundColor: '#ffffff',
-    borderRadius: 14,
-    padding: 14,
+    borderRadius: 18,
+    padding: 18,
     borderWidth: 1,
     borderColor: '#e2e8f0',
   },
@@ -1678,8 +1732,8 @@ const styles = StyleSheet.create({
   },
   summaryCard: {
     backgroundColor: '#ffffff',
-    borderRadius: 14,
-    padding: 16,
+    borderRadius: 18,
+    padding: 18,
     borderWidth: 1,
     borderColor: '#e2e8f0',
   },
