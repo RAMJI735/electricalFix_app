@@ -394,7 +394,7 @@ export default function CartScreen({
       setFormError(err.message || 'Failed to place order. Please try again.');
       try {
         fetchCart();
-      } catch (e) {}
+      } catch (e) { }
     } finally {
       setPlacingOrder(false);
     }
@@ -1126,7 +1126,7 @@ export default function CartScreen({
                 </View>
               </TouchableOpacity>
 
-              <TouchableOpacity
+              <TouchableOpacity disabled
                 style={[
                   styles.paymentOption,
                   paymentMethod === 'UPI' && styles.paymentOptionActive,
@@ -1153,7 +1153,7 @@ export default function CartScreen({
                 </View>
               </TouchableOpacity>
 
-              <TouchableOpacity
+              <TouchableOpacity disabled
                 style={[
                   styles.paymentOption,
                   paymentMethod === 'CARD' && styles.paymentOptionActive,

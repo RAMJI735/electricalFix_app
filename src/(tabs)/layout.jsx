@@ -1,5 +1,5 @@
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import {
     StyleSheet,
     View,
@@ -8,7 +8,6 @@ import {
     StatusBar,
     Platform,
     Modal,
-    BackHandler,
 } from 'react-native';
 
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -46,32 +45,6 @@ export default function TabsLayout() {
 
     const { totalCartCount, addToCart } = useCart();
     const { isAuthenticated } = useAuth();
-
-    useEffect(() => {
-        const backAction = () => {
-            // Check current active tab
-            const currentRoute = navigation.getState()?.routes?.[
-                navigation.getState()?.index
-            ];
-
-            // If current tab is Home, exit app
-            if (currentRoute?.name === 'Home') {
-                BackHandler.exitApp();
-                return true;
-            }
-
-            // For other tabs, let React Navigation
-            // handle back history automatically
-            return false;
-        };
-
-        const backHandler = BackHandler.addEventListener(
-            'hardwareBackPress',
-            backAction
-        );
-
-        return () => backHandler.remove();
-    }, [navigation]);
 
     // Add to Cart
     const handleAddToCart = async (product) => {
@@ -155,7 +128,7 @@ export default function TabsLayout() {
             <Tab.Navigator
                 screenOptions={{ headerShown: false }}
                 tabBar={renderTabBar}
-                backBehavior="history"
+                backBehavior="firstRoute"
             >
                 {/* Home */}
                 <Tab.Screen name="Home">

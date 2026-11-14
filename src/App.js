@@ -11,6 +11,7 @@ import AddressScreen from './screens/AddressScreen';
 import LoginScreen from './(auth)/LoginScreen';
 import SignUpScreen from './(auth)/SignUpScreen';
 import ForgotPasswordScreen from './(auth)/ForgotPasswordScreen';
+import LegalScreen from './screens/LegalScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -33,6 +34,9 @@ const linking = {
       Login: 'login',
       SignUp: 'signup',
       ForgotPassword: 'forgot-password',
+      Legal: 'legal',
+      Terms: 'terms',
+      PrivacyPolicy: 'privacy-policy',
     },
   },
 };
@@ -53,6 +57,9 @@ export default function App() {
           <Stack.Screen name="Login" component={LoginScreen} />
           <Stack.Screen name="SignUp" component={SignUpScreen} />
           <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+          <Stack.Screen name="Legal" component={LegalScreen} />
+          <Stack.Screen name="Terms" component={LegalScreen} initialParams={{ type: 'terms' }} />
+          <Stack.Screen name="PrivacyPolicy" component={LegalScreen} initialParams={{ type: 'privacy' }} />
         </Stack.Navigator>
       </NavigationContainer>
     </RootLayout>

@@ -331,7 +331,13 @@ export default function ProfileScreen({
         <TouchableOpacity
           style={styles.menuItem}
           activeOpacity={0.7}
-          onPress={() => setShowTermsModal(true)}
+          onPress={() => {
+            if (navigation?.navigate) {
+              navigation.navigate('Terms');
+            } else {
+              setShowTermsModal(true);
+            }
+          }}
         >
           <Text style={styles.menuIcon}>📜</Text>
           <View style={styles.menuTextWrap}>
@@ -346,7 +352,13 @@ export default function ProfileScreen({
         <TouchableOpacity
           style={styles.menuItem}
           activeOpacity={0.7}
-          onPress={() => setShowPrivacyModal(true)}
+          onPress={() => {
+            if (navigation?.navigate) {
+              navigation.navigate('PrivacyPolicy');
+            } else {
+              setShowPrivacyModal(true);
+            }
+          }}
         >
           <Text style={styles.menuIcon}>🔒</Text>
           <View style={styles.menuTextWrap}>
@@ -639,7 +651,11 @@ export default function ProfileScreen({
               </TouchableOpacity>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 420 }}>
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              style={{ maxHeight: 420 }}
+              contentContainerStyle={{ paddingBottom: 16 }}
+            >
               <View style={styles.supportCard}>
                 <Text style={styles.supportLabel}>100% GENUINE & ISI CERTIFIED</Text>
                 <Text style={styles.supportSub}>
@@ -683,6 +699,16 @@ export default function ProfileScreen({
               </View>
 
               <TouchableOpacity
+                style={[styles.dismissBtn, { backgroundColor: '#2563eb', marginBottom: 8 }]}
+                onPress={() => {
+                  setShowTermsModal(false);
+                  navigation?.navigate?.('Terms');
+                }}
+              >
+                <Text style={[styles.dismissBtnText, { color: '#ffffff' }]}>VIEW COMPLETE TERMS</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
                 style={styles.dismissBtn}
                 onPress={() => setShowTermsModal(false)}
               >
@@ -716,7 +742,11 @@ export default function ProfileScreen({
               </TouchableOpacity>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 420 }}>
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              style={{ maxHeight: 420 }}
+              contentContainerStyle={{ paddingBottom: 16 }}
+            >
               <View style={styles.supportCard}>
                 <Text style={styles.supportLabel}>INFORMATION WE COLLECT</Text>
                 <Text style={styles.supportSub}>
@@ -727,7 +757,7 @@ export default function ProfileScreen({
               <View style={styles.supportCard}>
                 <Text style={styles.supportLabel}>ZERO CARD STORAGE</Text>
                 <Text style={styles.supportSub}>
-                  Voltline never stores debit/credit cards or UPI PINs. Online payments are processed through PCI-DSS bank-grade encrypted payment gateways.
+                  {storeName} never stores debit/credit cards or UPI PINs. Online payments are processed through PCI-DSS bank-grade encrypted payment gateways.
                 </Text>
               </View>
 
@@ -741,7 +771,7 @@ export default function ProfileScreen({
               <View style={styles.supportCard}>
                 <Text style={styles.supportLabel}>DATA ENCRYPTION</Text>
                 <Text style={styles.supportSub}>
-                  All communication between the app and server is protected by SSL/TLS 1.3 encryption. Auth tokens are stored securely in local device storage.
+                  All communication between the app and server is protected by SSL/TLS 1.3 encryption. Sessions are secured via HttpOnly cookies without storing tokens in JavaScript.
                 </Text>
               </View>
 
@@ -758,6 +788,16 @@ export default function ProfileScreen({
                   {storeName}, {officeAddress}, {city}, {state} - {pincode}. Support: {supportPhone}
                 </Text>
               </View>
+
+              <TouchableOpacity
+                style={[styles.dismissBtn, { backgroundColor: '#2563eb', marginBottom: 8 }]}
+                onPress={() => {
+                  setShowPrivacyModal(false);
+                  navigation?.navigate?.('PrivacyPolicy');
+                }}
+              >
+                <Text style={[styles.dismissBtnText, { color: '#ffffff' }]}>VIEW COMPLETE PRIVACY POLICY</Text>
+              </TouchableOpacity>
 
               <TouchableOpacity
                 style={styles.dismissBtn}

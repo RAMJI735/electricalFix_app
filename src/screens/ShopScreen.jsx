@@ -81,7 +81,16 @@ export default function ShopScreen({
   if (currentCategory !== prevInitialCategory) {
     setPrevInitialCategory(currentCategory);
     setSelectedCategory(currentCategory);
+    setDisplayedItems([]);
+    setLoadingItems(true);
   }
+
+  const handleSelectCategory = useCallback((categoryId) => {
+    if (categoryId === selectedCategory) return;
+    setDisplayedItems([]);
+    setLoadingItems(true);
+    setSelectedCategory(categoryId);
+  }, [selectedCategory]);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(1);
@@ -521,9 +530,17 @@ export default function ShopScreen({
                     isSelected && styles.pillActive,
                   ]}
                   activeOpacity={0.7}
-                  onPress={() => setSelectedCategory(category.id)}
+                  onPress={() => handleSelectCategory(category.id)}
                 >
-                  <Text style={styles.pillIcon}>{category.icon}</Text>
+                  {isSelected && loadingItems ? (
+                    <ActivityIndicator
+                      size="small"
+                      color="#2563eb"
+                      style={{ marginRight: 6 }}
+                    />
+                  ) : (
+                    <Text style={styles.pillIcon}>{category.icon}</Text>
+                  )}
 
                   <Text
                     style={[
@@ -541,7 +558,7 @@ export default function ShopScreen({
       </View>
 
       <FlatList
-        data={displayedItems}
+        data={loadingItems ? [] : displayedItems}
         keyExtractor={(item, index) =>
           String(item.id ?? index)
         }
@@ -566,7 +583,14 @@ export default function ShopScreen({
         }
         ListEmptyComponent={
           loadingItems ? (
-            <View>
+            <View style={styles.skeletonContainer}>
+              <View style={styles.categoryLoadingBadge}>
+                <ActivityIndicator size="small" color="#2563eb" />
+                <Text style={styles.categoryLoadingBadgeText}>
+                  Loading {categories.find((c) => c.id === selectedCategory)?.name || 'category'} products...
+                </Text>
+              </View>
+              <ProductCardSkeleton />
               <ProductCardSkeleton />
               <ProductCardSkeleton />
               <ProductCardSkeleton />
@@ -980,5 +1004,26 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#94a3b8',
     fontWeight: '600',
+  },
+  categoryLoadingBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    backgroundColor: '#eff6ff',
+    borderRadius: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+  },
+  categoryLoadingBadgeText: {
+    fontSize: 12.5,
+    fontWeight: '600',
+    color: '#1d4ed8',
+  },
+  skeletonContainer: {
+    paddingTop: 6,
   },
 });

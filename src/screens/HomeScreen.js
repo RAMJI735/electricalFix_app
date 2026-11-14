@@ -13,7 +13,10 @@ import {
   ActivityIndicator,
   ImageBackground,
   useWindowDimensions,
+  BackHandler,
+  ToastAndroid,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
 import { colors } from '../constants/theme';
 import { ELECTRICAL_CATEGORIES } from '../constants/mockData';
@@ -61,6 +64,34 @@ export default function HomeScreen({
   const [loadingProducts, setLoadingProducts] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [addingProductId, setAddingProductId] = useState(null);
+
+  // Double back press to exit app when on Home screen
+  useFocusEffect(
+    useCallback(() => {
+      let lastBackPressTime = 0;
+
+      const onBackPress = () => {
+        const now = Date.now();
+        if (now - lastBackPressTime < 2000) {
+          BackHandler.exitApp();
+          return true;
+        }
+
+        lastBackPressTime = now;
+        if (Platform.OS === 'android') {
+          ToastAndroid.show('Press back again to exit', ToastAndroid.SHORT);
+        }
+        return true;
+      };
+
+      const subscription = BackHandler.addEventListener(
+        'hardwareBackPress',
+        onBackPress
+      );
+
+      return () => subscription.remove();
+    }, [])
+  );
 
   const handleAddToCartClick = async (product) => {
     const pid = product._id || product.id;

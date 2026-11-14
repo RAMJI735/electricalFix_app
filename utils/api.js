@@ -6,40 +6,60 @@ const FALLBACK_API_URL =
   'https://ecom-backend-git-main-ramji735s-projects.vercel.app';
 
 const getApiBaseUrl = () => {
-  // On web, always connect to current page's hostname on port 8000 for same-origin HttpOnly cookies.
-  if (
-    Platform.OS === 'web' &&
-    typeof window !== 'undefined' &&
-    window.location?.hostname
-  ) {
-    return `http://${window.location.hostname}:8000`;
-  }
-
-  if (process.env.EXPO_PUBLIC_API_URL) {
-    return process.env.EXPO_PUBLIC_API_URL;
+  let url = process.env.EXPO_PUBLIC_API_URL;
+  if (url) {
+    url = url.trim().replace(/^['"]|['"]$/g, '').replace(/\/+$/, '');
+    // If running on a native mobile device and configured URL is localhost/127.0.0.1, use live URL
+    if (
+      Platform.OS !== 'web' &&
+      (url.includes('localhost') || url.includes('127.0.0.1'))
+    ) {
+      console.warn(
+        '[API] "localhost" cannot be reached from native mobile devices. Using live URL:',
+        FALLBACK_API_URL
+      );
+      return FALLBACK_API_URL;
+    }
+    return url;
   }
 
   return FALLBACK_API_URL;
 };
 
 const baseURL = getApiBaseUrl();
+console.log(`[API Config] Platform: ${Platform.OS} | BaseURL: ${baseURL}`);
 
-// Main API client (100% HttpOnly cookie based)
+// Main API client (cookie credentials on web, native transport on mobile)
 export const api = axios.create({
   baseURL,
-  timeout: 15000,
+  timeout: 20000,
   headers: {
     'Content-Type': 'application/json',
+    Accept: 'application/json',
   },
-  withCredentials: true,
+  withCredentials: Platform.OS === 'web',
 });
 
-// Refresh token client (100% HttpOnly cookie based)
+// Refresh token client
 const refreshApi = axios.create({
   baseURL,
-  timeout: 15000,
-  withCredentials: true,
+  timeout: 20000,
+  headers: {
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+  },
+  withCredentials: Platform.OS === 'web',
 });
+
+// Request interceptor to log outgoing requests
+api.interceptors.request.use(
+  (config) => {
+    const fullUrl = `${config.baseURL || ''}${config.url || ''}`;
+    console.log(`[API Request] ${config.method?.toUpperCase()} -> ${fullUrl}`);
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
 
 let refreshPromise = null;
 
@@ -66,16 +86,20 @@ export const getActiveToken = async () => {
   return null;
 };
 
-
-
-
 api.interceptors.response.use(
   (response) => response,
 
   async (error) => {
-    const originalRequest = error.config;
+    const originalRequest = error.config || {};
+    const fullUrl = `${originalRequest.baseURL || ''}${originalRequest.url || ''}`;
 
-    if (!originalRequest) {
+    console.error(`[API Error] ${originalRequest.method?.toUpperCase() || 'GET'} ${fullUrl}:`, {
+      message: error.message,
+      code: error.code,
+      status: error.response?.status,
+    });
+
+    if (!error.config) {
       return Promise.reject(error);
     }
 

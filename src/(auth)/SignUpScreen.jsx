@@ -544,6 +544,27 @@ export default function SignUpScreen({
             )}
           </View>
 
+          {/* Terms & Privacy Agreement Notice */}
+          <View style={styles.legalNoticeContainer}>
+            <Text style={styles.legalNoticeText}>
+              By tapping Create Account, you agree to our{' '}
+              <Text
+                style={styles.legalLink}
+                onPress={() => navigation?.navigate?.('Terms')}
+              >
+                Terms & Conditions
+              </Text>{' '}
+              and{' '}
+              <Text
+                style={styles.legalLink}
+                onPress={() => navigation?.navigate?.('PrivacyPolicy')}
+              >
+                Privacy Policy
+              </Text>
+              .
+            </Text>
+          </View>
+
           {/* Submit Button */}
           <TouchableOpacity
             style={[styles.primaryButton, loading && styles.buttonDisabled]}
@@ -962,5 +983,20 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#2563eb',
     fontWeight: '600',
+  },
+  legalNoticeContainer: {
+    marginBottom: 16,
+    paddingHorizontal: 4,
+  },
+  legalNoticeText: {
+    fontSize: 12,
+    color: '#64748b',
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  legalLink: {
+    color: '#2563eb',
+    fontWeight: '700',
+    textDecorationLine: 'underline',
   },
 });
