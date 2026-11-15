@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
@@ -12,6 +12,7 @@ import LoginScreen from './(auth)/LoginScreen';
 import SignUpScreen from './(auth)/SignUpScreen';
 import ForgotPasswordScreen from './(auth)/ForgotPasswordScreen';
 import LegalScreen from './screens/LegalScreen';
+import ErrorBoundary from './components/ErrorBoundary';
 
 const Stack = createNativeStackNavigator();
 
@@ -42,26 +43,43 @@ const linking = {
 };
 
 export default function App() {
+  useEffect(() => {
+    // Prevent unhandled errors from abruptly terminating the mobile Activity
+    if (global.ErrorUtils) {
+      const originalHandler = global.ErrorUtils.getGlobalHandler();
+      global.ErrorUtils.setGlobalHandler((error, isFatal) => {
+        console.error('[Global App Error Handler]', error, 'isFatal:', isFatal);
+        if (!__DEV__ && originalHandler) {
+          try {
+            originalHandler(error, false);
+          } catch (_e) {}
+        }
+      });
+    }
+  }, []);
+
   return (
-    <RootLayout>
-      <NavigationContainer linking={linking}>
-        <Stack.Navigator
-          initialRouteName="MainTabs"
-          screenOptions={{ headerShown: false }}
-        >
-          <Stack.Screen name="MainTabs" component={TabsLayout} />
-          <Stack.Screen name="ServiceDetail" component={ServiceDetailPage} />
-          <Stack.Screen name="OrderDetail" component={OrderDetailPage} />
-          <Stack.Screen name="Orders" component={OrdersScreen} />
-          <Stack.Screen name="Addresses" component={AddressScreen} />
-          <Stack.Screen name="Login" component={LoginScreen} />
-          <Stack.Screen name="SignUp" component={SignUpScreen} />
-          <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
-          <Stack.Screen name="Legal" component={LegalScreen} />
-          <Stack.Screen name="Terms" component={LegalScreen} initialParams={{ type: 'terms' }} />
-          <Stack.Screen name="PrivacyPolicy" component={LegalScreen} initialParams={{ type: 'privacy' }} />
-        </Stack.Navigator>
-      </NavigationContainer>
-    </RootLayout>
+    <ErrorBoundary>
+      <RootLayout>
+        <NavigationContainer linking={linking}>
+          <Stack.Navigator
+            initialRouteName="MainTabs"
+            screenOptions={{ headerShown: false }}
+          >
+            <Stack.Screen name="MainTabs" component={TabsLayout} />
+            <Stack.Screen name="ServiceDetail" component={ServiceDetailPage} />
+            <Stack.Screen name="OrderDetail" component={OrderDetailPage} />
+            <Stack.Screen name="Orders" component={OrdersScreen} />
+            <Stack.Screen name="Addresses" component={AddressScreen} />
+            <Stack.Screen name="Login" component={LoginScreen} />
+            <Stack.Screen name="SignUp" component={SignUpScreen} />
+            <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+            <Stack.Screen name="Legal" component={LegalScreen} />
+            <Stack.Screen name="Terms" component={LegalScreen} initialParams={{ type: 'terms' }} />
+            <Stack.Screen name="PrivacyPolicy" component={LegalScreen} initialParams={{ type: 'privacy' }} />
+          </Stack.Navigator>
+        </NavigationContainer>
+      </RootLayout>
+    </ErrorBoundary>
   );
 }

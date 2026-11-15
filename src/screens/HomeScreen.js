@@ -16,7 +16,7 @@ import {
   BackHandler,
   ToastAndroid,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
 import { colors } from '../constants/theme';
 import { ELECTRICAL_CATEGORIES } from '../constants/mockData';
@@ -35,17 +35,43 @@ import { CategoryCircleSkeleton, ProductCardSkeleton } from '../components/Skele
 const PAGE_SIZE = 6;
 
 export default function HomeScreen({
-  onSelectCategory,
-  onAddToCart,
-  onNavigateToShop,
-  onSelectService,
-  onNavigateToCart,
+  onSelectCategory: propOnSelectCategory,
+  onAddToCart: propOnAddToCart,
+  onNavigateToShop: propOnNavigateToShop,
+  onSelectService: propOnSelectService,
+  onNavigateToCart: propOnNavigateToCart,
 }) {
+  const navigation = useNavigation();
+  const isFocused = useIsFocused();
   const queryClient = useQueryClient();
-  const { isInCart } = useCart();
+  const { isInCart, addToCart } = useCart();
   const [searchQuery, setSearchQuery] = useState('');
   const [categories, setCategories] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
+
+  const onSelectCategory =
+    propOnSelectCategory ||
+    ((id) => navigation.navigate('Shop', { categoryId: id }));
+  const onNavigateToShop =
+    propOnNavigateToShop ||
+    ((id = 'all') => navigation.navigate('Shop', { categoryId: id }));
+  const onSelectService =
+    propOnSelectService ||
+    ((service) =>
+      navigation.navigate('ServiceDetail', {
+        serviceId: service.id || service._id,
+      }));
+  const onNavigateToCart =
+    propOnNavigateToCart || (() => navigation.navigate('Cart'));
+  const onAddToCart =
+    propOnAddToCart ||
+    (async (product) => {
+      try {
+        return await addToCart(product, 1);
+      } catch (e) {
+        console.warn('Add to cart fallback error:', e);
+      }
+    });
 
   // Dynamic Store & App Settings
   const {
@@ -65,19 +91,20 @@ export default function HomeScreen({
   const [loadingMore, setLoadingMore] = useState(false);
   const [addingProductId, setAddingProductId] = useState(null);
 
+  // Persistent reference for double back press tracking
+  const lastBackPressTime = useRef(0);
+
   // Double back press to exit app when on Home screen
   useFocusEffect(
     useCallback(() => {
-      let lastBackPressTime = 0;
-
       const onBackPress = () => {
         const now = Date.now();
-        if (now - lastBackPressTime < 2000) {
+        if (now - lastBackPressTime.current < 2000) {
           BackHandler.exitApp();
           return true;
         }
 
-        lastBackPressTime = now;
+        lastBackPressTime.current = now;
         if (Platform.OS === 'android') {
           ToastAndroid.show('Press back again to exit', ToastAndroid.SHORT);
         }
@@ -89,7 +116,10 @@ export default function HomeScreen({
         onBackPress
       );
 
-      return () => subscription.remove();
+      return () => {
+        lastBackPressTime.current = 0;
+        subscription.remove();
+      };
     }, [])
   );
 
@@ -295,28 +325,34 @@ export default function HomeScreen({
     [containerWidth]
   );
 
-  // Auto-scroll hero banner carousel reliably
+  // Auto-scroll hero banner carousel safely (only when screen is actively focused)
   useEffect(() => {
-    if (activeBanners.length <= 1 || bannerWidth <= 0) return;
+    if (!isFocused || activeBanners.length <= 1 || bannerWidth <= 0) return;
 
     const interval = setInterval(() => {
-      if (isInteracting.current) return;
+      if (isInteracting.current || !bannerRef.current) return;
 
       setActiveBannerIndex((prev) => {
         const nextIndex = (prev + 1) % activeBanners.length;
-        if (bannerRef.current) {
-          bannerRef.current.scrollTo({
-            x: nextIndex * bannerWidth,
-            y: 0,
-            animated: true,
-          });
-        }
+        requestAnimationFrame(() => {
+          if (bannerRef.current && bannerWidth > 0) {
+            try {
+              bannerRef.current.scrollTo({
+                x: nextIndex * bannerWidth,
+                y: 0,
+                animated: true,
+              });
+            } catch (_err) {
+              // Non-fatal if view unmounted during animation
+            }
+          }
+        });
         return nextIndex;
       });
     }, 4000);
 
     return () => clearInterval(interval);
-  }, [activeBanners.length, bannerWidth]);
+  }, [isFocused, activeBanners.length, bannerWidth]);
 
   const handleScroll = useCallback(
     (event) => {
@@ -807,7 +843,7 @@ export default function HomeScreen({
       ListEmptyComponent={renderEmpty()}
       onEndReached={handleLoadMore}
       onEndReachedThreshold={0.4}
-      removeClippedSubviews={Platform.OS === 'android'}
+      removeClippedSubviews={false}
       maxToRenderPerBatch={6}
       windowSize={5}
       initialNumToRender={4}

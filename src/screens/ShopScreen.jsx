@@ -38,18 +38,48 @@ export default function ShopScreen({
   navigation,
   initialCategory: propInitialCategory = 'all',
   onBack: propOnBack,
-  onAddToCart,
-  onSelectService,
-  onNavigateToCart,
+  onAddToCart: propOnAddToCart,
+  onSelectService: propOnSelectService,
+  onNavigateToCart: propOnNavigateToCart,
 }) {
   const currentCategory = route?.params?.categoryId || route?.params?.category || propInitialCategory || 'all';
   const queryClient = useQueryClient();
-  const { isInCart } = useCart();
+  const { isInCart, addToCart } = useCart();
   const { commerce } = useSettings();
   const gstType = commerce?.gstType || 'exclusive';
   const taxRate = commerce?.taxRate ?? 18;
 
+  const onSelectService =
+    propOnSelectService ||
+    ((product) =>
+      navigation?.navigate('ServiceDetail', {
+        serviceId: product.id || product._id,
+      }));
+  const onNavigateToCart =
+    propOnNavigateToCart || (() => navigation?.navigate('Cart'));
+  const onAddToCart =
+    propOnAddToCart ||
+    (async (product) => {
+      try {
+        return await addToCart(product, 1);
+      } catch (e) {
+        console.warn('Shop add to cart error:', e);
+      }
+    });
+
+  const [selectedCategory, setSelectedCategory] = useState(currentCategory);
+  const [prevInitialCategory, setPrevInitialCategory] = useState(currentCategory);
+  const [searchQuery, setSearchQuery] = useState('');
+
   const handleBack = useCallback(() => {
+    if (searchQuery && searchQuery.trim().length > 0) {
+      setSearchQuery('');
+      return true;
+    }
+    if (selectedCategory && selectedCategory !== 'all') {
+      setSelectedCategory('all');
+      return true;
+    }
     if (propOnBack) {
       propOnBack();
     } else if (navigation?.jumpTo) {
@@ -57,7 +87,8 @@ export default function ShopScreen({
     } else if (navigation?.navigate) {
       navigation.navigate('Home');
     }
-  }, [propOnBack, navigation]);
+    return true;
+  }, [searchQuery, selectedCategory, propOnBack, navigation]);
 
   useFocusEffect(
     useCallback(() => {
@@ -75,9 +106,6 @@ export default function ShopScreen({
     }, [handleBack])
   );
 
-  const [selectedCategory, setSelectedCategory] = useState(currentCategory);
-  const [prevInitialCategory, setPrevInitialCategory] = useState(currentCategory);
-
   if (currentCategory !== prevInitialCategory) {
     setPrevInitialCategory(currentCategory);
     setSelectedCategory(currentCategory);
@@ -92,7 +120,6 @@ export default function ShopScreen({
     setSelectedCategory(categoryId);
   }, [selectedCategory]);
 
-  const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [loadingItems, setLoadingItems] = useState(true);

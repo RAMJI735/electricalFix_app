@@ -43,30 +43,8 @@ export default function TabsLayout() {
 
     const [authModalVisible, setAuthModalVisible] = useState(false);
 
-    const { totalCartCount, addToCart } = useCart();
+    const { totalCartCount } = useCart();
     const { isAuthenticated } = useAuth();
-
-    // Add to Cart
-    const handleAddToCart = async (product) => {
-        if (!isAuthenticated) {
-            setAuthModalVisible(true);
-            return false;
-        }
-
-        try {
-            return await addToCart(product, 1);
-        } catch (error) {
-            if (
-                error?.code === 'AUTH_REQUIRED' ||
-                error?.message?.toLowerCase().includes('log in')
-            ) {
-                setAuthModalVisible(true);
-                return false;
-            }
-
-            throw error;
-        }
-    };
 
     // Custom Tab Bar
     const renderTabBar = ({ state, navigation: tabNav }) => (
@@ -130,118 +108,10 @@ export default function TabsLayout() {
                 tabBar={renderTabBar}
                 backBehavior="firstRoute"
             >
-                {/* Home */}
-                <Tab.Screen name="Home">
-                    {({ navigation: tabNav }) => (
-                        <HomeScreen
-                            onSelectCategory={(id) =>
-                                tabNav.navigate('Shop', { categoryId: id })
-                            }
-                            onNavigateToShop={(id = 'all') =>
-                                tabNav.navigate('Shop', { categoryId: id })
-                            }
-                            onSelectService={(service) =>
-                                navigation.navigate('ServiceDetail', {
-                                    serviceId: service.id || service._id,
-                                })
-                            }
-                            onNavigateToCart={() => tabNav.navigate('Cart')}
-                            onAddToCart={handleAddToCart}
-                        />
-                    )}
-                </Tab.Screen>
-
-                {/* Shop */}
-                <Tab.Screen name="Shop">
-                    {({ route, navigation: tabNav }) => (
-                        <ShopScreen
-                            navigation={tabNav}
-                            route={route}
-                            initialCategory={route.params?.categoryId || 'all'}
-                            onBack={() => {
-                                if (tabNav?.jumpTo) {
-                                    tabNav.jumpTo('Home');
-                                } else if (tabNav?.navigate) {
-                                    tabNav.navigate('Home');
-                                } else {
-                                    navigation.navigate('Home');
-                                }
-                            }}
-                            onSelectService={(service) =>
-                                navigation.navigate('ServiceDetail', {
-                                    serviceId: service.id || service._id,
-                                })
-                            }
-                            onNavigateToCart={() => tabNav.navigate('Cart')}
-                            onAddToCart={handleAddToCart}
-                        />
-                    )}
-                </Tab.Screen>
-
-                {/* Cart */}
-                <Tab.Screen name="Cart">
-                    {({ route, navigation: tabNav }) => (
-                        <CartScreen
-                            navigation={tabNav}
-                            route={route}
-                            onBack={() => {
-                                if (tabNav?.jumpTo) {
-                                    tabNav.jumpTo('Home');
-                                } else if (tabNav?.navigate) {
-                                    tabNav.navigate('Home');
-                                } else {
-                                    navigation.navigate('Home');
-                                }
-                            }}
-                            onExploreShop={() =>
-                                tabNav.navigate('Shop', { categoryId: 'all' })
-                            }
-                            onNavigateToOrders={(order) =>
-                                navigation.navigate(
-                                    order ? 'OrderDetail' : 'Orders',
-                                    order
-                                        ? { orderId: order._id || order.orderNumber }
-                                        : undefined
-                                )
-                            }
-                            onNavigateToAuth={(screen) =>
-                                navigation.navigate(
-                                    screen === 'signup' ? 'SignUp' : 'Login'
-                                )
-                            }
-                        />
-                    )}
-                </Tab.Screen>
-
-                {/* Profile */}
-                <Tab.Screen name="Profile">
-                    {({ route, navigation: tabNav }) => (
-                        <ProfileScreen
-                            navigation={tabNav}
-                            route={route}
-                            onBack={() => {
-                                if (tabNav?.jumpTo) {
-                                    tabNav.jumpTo('Home');
-                                } else if (tabNav?.navigate) {
-                                    tabNav.navigate('Home');
-                                } else {
-                                    navigation.navigate('Home');
-                                }
-                            }}
-                            onNavigateToOrders={() =>
-                                navigation.navigate('Orders')
-                            }
-                            onNavigateToAddresses={() =>
-                                navigation.navigate('Addresses')
-                            }
-                            onNavigateToAuth={(screen) =>
-                                navigation.navigate(
-                                    screen === 'signup' ? 'SignUp' : 'Login'
-                                )
-                            }
-                        />
-                    )}
-                </Tab.Screen>
+                <Tab.Screen name="Home" component={HomeScreen} />
+                <Tab.Screen name="Shop" component={ShopScreen} />
+                <Tab.Screen name="Cart" component={CartScreen} />
+                <Tab.Screen name="Profile" component={ProfileScreen} />
             </Tab.Navigator>
 
             {/* Login Required Modal */}
