@@ -1,4 +1,5 @@
 import { api } from '../utils/api';
+import { MOCK_PRODUCTS } from '../src/constants/mockData';
 
 export const ServiceService = {
   /**
@@ -47,7 +48,11 @@ export const ServiceService = {
       const response = await api.get(`/api/services/${id}`);
       return response.data?.data || response.data;
     } catch (error) {
-      console.error(`Error fetching service with id ${id}:`, error.message);
+      console.warn(`Error fetching service with id ${id}:`, error.message);
+      const mockItem = MOCK_PRODUCTS.find((p) => (p._id || p.id) === id);
+      if (mockItem) {
+        return mockItem;
+      }
       throw error;
     }
   },

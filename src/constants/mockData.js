@@ -146,3 +146,104 @@ export const MOCK_PRODUCTS = [
     image: 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?auto=format&fit=crop&w=400&q=80',
   },
 ];
+
+// Map category slugs to backend MongoDB ObjectIds
+export const CATEGORY_MAP = {
+  wires: '6ae77029f711504e9b464587',
+  switches: '6ae77029f711504e9b464588',
+  mcb: '6ae77029f711504e9b464589',
+  lighting: '6ae77029f711504e9b46458a',
+  smart: '6ae77029f711504e9b46458b',
+  tools: '6ae77029f711504e9b46458c',
+  solar: '6ae77029f711504e9b46458d',
+  motors: '6ae77029f711504e9b46458e',
+};
+
+// Check if two category identifiers match (handles slugs and Mongo ObjectIds)
+export const isCategoryMatch = (catA, catB) => {
+  if (!catA || !catB) return false;
+  if (catA === catB) return true;
+  if (catA === 'all' || catB === 'all') return false;
+
+  for (const [slug, id] of Object.entries(CATEGORY_MAP)) {
+    if ((catA === slug || catA === id) && (catB === slug || catB === id)) {
+      return true;
+    }
+  }
+  return false;
+};
+
+// Format a product/mock product to standard shop card structure
+export const formatCatalogProduct = (item) => {
+  const price = Number(item.price) || 0;
+  const origPrice =
+    Number(item.originalPrice) && Number(item.originalPrice) > price
+      ? Number(item.originalPrice)
+      : Number(item.effectiveOriginalPrice) || Math.round(price * 1.25);
+  const discount =
+    origPrice > price
+      ? Math.round(((origPrice - price) / origPrice) * 100)
+      : 0;
+
+  return {
+    ...item,
+    id: item._id || item.id,
+    name:
+      item.serviceName ||
+      item.productName ||
+      item.name ||
+      'Electrical Product',
+    brand: item.brand || 'VOLTLINE',
+    model: item.model || '',
+    spec: item.estimated_time
+      ? `⏱ ${item.estimated_time} • Warranty: ${item.warranty || '90 Days'}`
+      : item.description ||
+        item.spec ||
+        'Certified Electrical Equipment',
+    price,
+    originalPrice: origPrice,
+    discountPercentage: discount,
+    rating: typeof item.rating === 'number' ? item.rating : 4.8,
+    reviews:
+      typeof item.reviewsCount === 'number'
+        ? item.reviewsCount
+        : item.reviews || 48,
+    badge:
+      item.badge ||
+      (item.type === 'service' ? 'SERVICE' : 'VERIFIED'),
+    inStock:
+      item.inStock !== false &&
+      (item.stock === undefined || item.stock > 0),
+    image:
+      item.image ||
+      (Array.isArray(item.images) ? item.images[0] : '') ||
+      '',
+    category:
+      item.category?._id ||
+      item.category ||
+      'general',
+    isBackend: Boolean(item.isBackend),
+  };
+};
+
+// Get fallback mock products for a given category and optional search query
+export const getFallbackProductsForCategory = (categoryId = 'all', searchQuery = '') => {
+  let list = MOCK_PRODUCTS.map(formatCatalogProduct);
+
+  if (categoryId && categoryId !== 'all') {
+    list = list.filter((item) => isCategoryMatch(item.category, categoryId));
+  }
+
+  if (searchQuery && searchQuery.trim()) {
+    const q = searchQuery.trim().toLowerCase();
+    list = list.filter(
+      (item) =>
+        item.name.toLowerCase().includes(q) ||
+        (item.brand && item.brand.toLowerCase().includes(q)) ||
+        (item.spec && item.spec.toLowerCase().includes(q))
+    );
+  }
+
+  return list;
+};
+

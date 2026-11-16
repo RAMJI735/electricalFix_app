@@ -19,7 +19,11 @@ import {
 import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
 import { colors } from '../constants/theme';
-import { ELECTRICAL_CATEGORIES } from '../constants/mockData';
+import {
+  ELECTRICAL_CATEGORIES,
+  MOCK_PRODUCTS,
+  formatCatalogProduct,
+} from '../constants/mockData';
 import { useCategories, useSettings } from '../hooks';
 import CategoryService from '../../services/categoryService';
 import { useCart } from '../context/CartContext';
@@ -46,7 +50,7 @@ export default function HomeScreen({
   const queryClient = useQueryClient();
   const { isInCart, addToCart } = useCart();
   const [searchQuery, setSearchQuery] = useState('');
-  const [categories, setCategories] = useState([]);
+  const [categories, setCategories] = useState(ELECTRICAL_CATEGORIES);
   const [refreshing, setRefreshing] = useState(false);
 
   const onSelectCategory =
@@ -182,73 +186,58 @@ export default function HomeScreen({
             },
           ];
 
-          const res = await queryClient.fetchQuery({
-            queryKey,
-            queryFn: () =>
-              CategoryService.getServicesPaginated({
-                categoryId: 'all',
-                page: pageToLoad,
-                limit: PAGE_SIZE,
-                search: searchQuery.trim(),
-              }),
-            staleTime: isRefresh ? 0 : 1000 * 60,
-          });
+          const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Request timed out')), 7000)
+          );
+
+          const res = await Promise.race([
+            queryClient.fetchQuery({
+              queryKey,
+              queryFn: () =>
+                CategoryService.getServicesPaginated({
+                  categoryId: 'all',
+                  page: pageToLoad,
+                  limit: PAGE_SIZE,
+                  search: searchQuery.trim(),
+                }),
+              staleTime: isRefresh ? 0 : 1000 * 60,
+            }),
+            timeoutPromise,
+          ]);
           backendItems = res?.items || [];
           hasNext = Boolean(res?.hasNextPage);
         } catch (err) {
-          console.warn('Backend products fetch failed:', err.message);
+          console.warn('Backend products fetch failed in HomeScreen:', err.message);
         }
 
-        const formattedBackend = backendItems.map((item) => {
-          const price = Number(item.price) || 0;
-          const origPrice =
-            Number(item.originalPrice) && Number(item.originalPrice) > price
-              ? Number(item.originalPrice)
-              : Number(item.effectiveOriginalPrice) || Math.round(price * 1.25);
-          const discount =
-            origPrice > price
-              ? Math.round(((origPrice - price) / origPrice) * 100)
-              : 0;
-
-          return {
-            ...item,
-            id: item._id || item.id,
-            name: item.serviceName || item.productName || item.name || 'Electrical Item',
-            brand: item.brand || 'VOLTLINE',
-            model: item.model || '',
-            spec: item.estimated_time
-              ? `⏱ ${item.estimated_time} • Warranty: ${item.warranty || '90 Days'}`
-              : (item.description || item.spec || 'Certified Electrical Equipment'),
-            price,
-            originalPrice: origPrice,
-            discountPercentage: discount,
-            rating: typeof item.rating === 'number' ? item.rating : 4.8,
-            reviews:
-              typeof item.reviewsCount === 'number'
-                ? item.reviewsCount
-                : item.reviews || 48,
-            badge:
-              item.badge || (item.type === 'service' ? 'SERVICE' : 'VERIFIED'),
-            inStock:
-              item.inStock !== false &&
-              (item.stock === undefined || item.stock > 0),
-            image:
-              item.image ||
-              (Array.isArray(item.images) ? item.images[0] : '') ||
-              '',
-            category: item.category?._id || item.category || 'general',
-            isBackend: true,
-          };
-        });
-
-        const combined = [...formattedBackend];
-        const uniquePool = Array.from(
-          new Map(combined.map((item) => [item.id, item])).values()
+        const formattedBackend = backendItems.map((item) =>
+          formatCatalogProduct({ ...item, isBackend: true })
         );
 
+        let uniquePool = [];
+
         if (pageToLoad === 1) {
+          if (formattedBackend.length > 0) {
+            const existingNames = new Set(
+              formattedBackend.map((i) => (i.name || '').toLowerCase())
+            );
+            const missingMock = MOCK_PRODUCTS.map(formatCatalogProduct).filter(
+              (m) => !existingNames.has((m.name || '').toLowerCase())
+            );
+            uniquePool = Array.from(
+              new Map(
+                [...formattedBackend, ...missingMock].map((item) => [item.id, item])
+              ).values()
+            );
+          } else {
+            uniquePool = MOCK_PRODUCTS.map(formatCatalogProduct);
+          }
+
           setProducts(uniquePool);
         } else {
+          uniquePool = Array.from(
+            new Map(formattedBackend.map((item) => [item.id, item])).values()
+          );
           setProducts((prev) => {
             const merged = [...prev, ...uniquePool];
             return Array.from(new Map(merged.map((i) => [i.id, i])).values());
@@ -256,9 +245,12 @@ export default function HomeScreen({
         }
 
         setPage(pageToLoad);
-        setHasMore(hasNext);
+        setHasMore(hasNext && formattedBackend.length > 0);
       } catch (err) {
         console.error('Error loading products page in HomeScreen:', err);
+        if (pageToLoad === 1) {
+          setProducts(MOCK_PRODUCTS.map(formatCatalogProduct));
+        }
       } finally {
         setLoadingProducts(false);
         setLoadingMore(false);

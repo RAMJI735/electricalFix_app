@@ -7,15 +7,15 @@ export const queryClient = new QueryClient({
     queries: {
       staleTime: 1000 * 60, // 1 minute: fast instant cache, revalidates silently in background
       gcTime: 1000 * 60 * 60 * 24 * 7, // 7 days persistent storage retention
-      retry: 1, // Rapid failure recovery without blocking mobile UI
+      retry: 2, // Rapid failure recovery without blocking mobile UI
       refetchOnMount: true, // Stale-while-revalidate: instant render from cache, background refresh if stale
       refetchOnWindowFocus: false, // Prevent refetch on app foregrounding
       refetchOnReconnect: true, // Auto-refetch stale queries when connection returns
-      networkMode: 'offlineFirst', // Always serve from cache immediately even if network is slow/offline
+      networkMode: 'always', // Always execute immediately in React Native (avoids paused-query infinite loading)
     },
     mutations: {
       retry: 1,
-      networkMode: 'offlineFirst',
+      networkMode: 'always',
     },
   },
 });

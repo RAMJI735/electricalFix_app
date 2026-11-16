@@ -1,4 +1,7 @@
 import { api } from '../utils/api';
+import { CATEGORY_MAP } from '../src/constants/mockData';
+
+const isMongoId = (id) => typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id);
 
 export const CategoryService = {
   /**
@@ -38,42 +41,39 @@ export const CategoryService = {
 
   /**
    * Fetch all services/products for a specific category ID
-   * @param {string} categoryId - The category MongoDB ID
+   * @param {string} categoryId - The category MongoDB ID or slug (e.g. 'tools')
    * @param {Object} params - Additional query params (search, page, limit, sortBy, minPrice, maxPrice)
    */
   async getServicesByCategoryId(categoryId, params = {}) {
+    const resolvedCategoryId = (categoryId && CATEGORY_MAP[categoryId]) || categoryId;
+
     try {
       // If no specific category or "all", fetch all services
-      if (!categoryId || categoryId === 'all') {
+      if (!resolvedCategoryId || resolvedCategoryId === 'all') {
         const response = await api.get('/api/services', { params });
         return response.data?.data || response.data || [];
       }
 
-      // Query specific category services: /api/categories/:id/services
-      const response = await api.get(`/api/categories/${categoryId}/services`, { params });
-      if (response.data && Array.isArray(response.data.data)) {
-        return response.data.data;
+      // If valid 24-hex ObjectId, query /api/categories/:id/services
+      if (isMongoId(resolvedCategoryId)) {
+        const response = await api.get(`/api/categories/${resolvedCategoryId}/services`, { params });
+        if (response.data && Array.isArray(response.data.data)) {
+          return response.data.data;
+        }
+        if (Array.isArray(response.data)) {
+          return response.data;
+        }
       }
-      if (Array.isArray(response.data)) {
-        return response.data;
-      }
-      return [];
+
+      // Fallback query by category or search param
+      const queryParams = isMongoId(resolvedCategoryId)
+        ? { category: resolvedCategoryId, ...params }
+        : { search: resolvedCategoryId, ...params };
+      const fallback = await api.get('/api/services', { params: queryParams });
+      return fallback.data?.data || fallback.data || [];
     } catch (error) {
-      // Fallback: /api/services?category=:id
-      try {
-        const queryParams =
-          categoryId && categoryId !== 'all'
-            ? { category: categoryId, ...params }
-            : params;
-        const fallback = await api.get('/api/services', { params: queryParams });
-        return fallback.data?.data || fallback.data || [];
-      } catch (fallbackError) {
-        console.error(
-          `Error fetching services for category ${categoryId || 'all'}:`,
-          fallbackError.message
-        );
-        throw fallbackError;
-      }
+      console.warn(`Error fetching services for category ${categoryId || 'all'}:`, error.message);
+      return [];
     }
   },
 
@@ -91,23 +91,30 @@ export const CategoryService = {
     type,
     ...rest
   } = {}) {
+    const resolvedCategoryId = (categoryId && CATEGORY_MAP[categoryId]) || categoryId;
     const params = { page, limit, ...rest };
+
     if (search && search.trim()) {
       params.search = search.trim();
     }
     if (sortBy) {
       params.sortBy = sortBy;
     }
-    if (type) {
+    // Only pass type if explicitly requested and NOT 'product' (database stores items as type: 'service')
+    if (type && type !== 'product') {
       params.type = type;
     }
 
     try {
       let response;
-      if (!categoryId || categoryId === 'all') {
+      if (!resolvedCategoryId || resolvedCategoryId === 'all') {
         response = await api.get('/api/services', { params });
+      } else if (isMongoId(resolvedCategoryId)) {
+        response = await api.get(`/api/categories/${resolvedCategoryId}/services`, { params });
       } else {
-        response = await api.get(`/api/categories/${categoryId}/services`, { params });
+        response = await api.get('/api/services', {
+          params: { search: resolvedCategoryId, ...params },
+        });
       }
 
       const resData = response.data;
@@ -137,10 +144,14 @@ export const CategoryService = {
     } catch (error) {
       // Fallback: /api/services?category=:id
       try {
-        const queryParams =
-          categoryId && categoryId !== 'all'
-            ? { category: categoryId, ...params }
-            : params;
+        const queryParams = { ...params };
+        if (resolvedCategoryId && resolvedCategoryId !== 'all') {
+          if (isMongoId(resolvedCategoryId)) {
+            queryParams.category = resolvedCategoryId;
+          } else {
+            queryParams.search = resolvedCategoryId;
+          }
+        }
         const fallback = await api.get('/api/services', { params: queryParams });
         const resData = fallback.data;
         const items = Array.isArray(resData?.data)
@@ -167,8 +178,14 @@ export const CategoryService = {
           hasNextPage,
         };
       } catch (fallbackError) {
-        console.error('Error fetching paginated services:', fallbackError.message);
-        throw fallbackError;
+        console.warn('Error fetching paginated services, returning empty response:', fallbackError.message);
+        return {
+          items: [],
+          page,
+          totalPages: 1,
+          total: 0,
+          hasNextPage: false,
+        };
       }
     }
   },

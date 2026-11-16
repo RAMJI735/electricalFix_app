@@ -32,7 +32,7 @@ console.log(`[API Config] Platform: ${Platform.OS} | BaseURL: ${baseURL}`);
 // Main API client (cookie credentials on web, native transport on mobile)
 export const api = axios.create({
   baseURL,
-  timeout: 20000,
+  timeout: 12000,
   headers: {
     'Content-Type': 'application/json',
     Accept: 'application/json',
@@ -43,7 +43,7 @@ export const api = axios.create({
 // Refresh token client
 const refreshApi = axios.create({
   baseURL,
-  timeout: 20000,
+  timeout: 12000,
   headers: {
     'Content-Type': 'application/json',
     Accept: 'application/json',
@@ -117,14 +117,22 @@ api.interceptors.response.use(
       '/auth/reset-password',
     ].some((path) => requestUrl.includes(path));
 
-    // Refresh on every 401 from protected APIs
-    const shouldRefresh = error.response?.status === 401;
+    // Public GET endpoints do not require authentication and must never trigger token refresh
+    const isPublicEndpoint = [
+      '/api/services',
+      '/api/categories',
+      '/api/settings',
+    ].some((path) => requestUrl.includes(path));
+
+    // Refresh on 401 from protected APIs only
+    const shouldRefresh = error.response?.status === 401 && !isPublicEndpoint;
 
     if (
       !shouldRefresh ||
       originalRequest._retry ||
       isRefreshRequest ||
-      isAuthRequest
+      isAuthRequest ||
+      isPublicEndpoint
     ) {
       const message =
         error.response?.data?.message ||

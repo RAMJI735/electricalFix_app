@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   StyleSheet,
   Text,
@@ -15,7 +15,14 @@ import {
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
-import { ELECTRICAL_CATEGORIES } from '../constants/mockData';
+import {
+  ELECTRICAL_CATEGORIES,
+  MOCK_PRODUCTS,
+  CATEGORY_MAP,
+  isCategoryMatch,
+  formatCatalogProduct,
+  getFallbackProductsForCategory,
+} from '../constants/mockData';
 import { useCategories, useSettings } from '../hooks';
 import CategoryService from '../../services/categoryService';
 import { useCart } from '../context/CartContext';
@@ -114,7 +121,7 @@ export default function ShopScreen({
   }
 
   const handleSelectCategory = useCallback((categoryId) => {
-    if (categoryId === selectedCategory) return;
+    if (isCategoryMatch(categoryId, selectedCategory) || categoryId === selectedCategory) return;
     setDisplayedItems([]);
     setLoadingItems(true);
     setSelectedCategory(categoryId);
@@ -128,6 +135,8 @@ export default function ShopScreen({
   const [displayedItems, setDisplayedItems] = useState([]);
   const [totalItemsCount, setTotalItemsCount] = useState(0);
   const [addingProductId, setAddingProductId] = useState(null);
+
+  const activeRequestId = useRef(0);
 
   const {
     data: categoryData,
@@ -151,6 +160,8 @@ export default function ShopScreen({
 
   const loadPage = useCallback(
     async (pageToLoad = 1, isRefresh = false) => {
+      const requestId = ++activeRequestId.current;
+
       if (pageToLoad === 1) {
         if (!isRefresh) setLoadingItems(true);
       } else {
@@ -162,18 +173,30 @@ export default function ShopScreen({
           page: pageToLoad,
           limit: PAGE_SIZE,
           search: searchQuery.trim(),
-          type: 'product',
           categoryId: selectedCategory || 'all',
         };
 
         const queryKey = ['services', 'paginated', queryParams];
 
-        const response = await queryClient.fetchQuery({
-          queryKey,
-          queryFn: () =>
-            CategoryService.getServicesPaginated(queryParams),
-          staleTime: isRefresh ? 0 : 1000 * 60,
-        });
+        // 7-second safety timeout so loading NEVER hangs indefinitely
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Request timed out')), 7000)
+        );
+
+        const response = await Promise.race([
+          queryClient.fetchQuery({
+            queryKey,
+            queryFn: () =>
+              CategoryService.getServicesPaginated(queryParams),
+            staleTime: isRefresh ? 0 : 1000 * 60,
+          }),
+          timeoutPromise,
+        ]);
+
+        if (requestId !== activeRequestId.current) {
+          // Stale request discarded
+          return;
+        }
 
         const backendItems =
           response?.items ||
@@ -184,74 +207,57 @@ export default function ShopScreen({
           response?.hasNextPage
         );
 
-        const formattedItems = backendItems.map((item) => {
-          const price = Number(item.price) || 0;
-          const origPrice =
-            Number(item.originalPrice) && Number(item.originalPrice) > price
-              ? Number(item.originalPrice)
-              : Number(item.effectiveOriginalPrice) || Math.round(price * 1.25);
-          const discount =
-            origPrice > price
-              ? Math.round(((origPrice - price) / origPrice) * 100)
-              : 0;
-
-          return {
-            ...item,
-            id: item._id || item.id,
-            name:
-              item.serviceName ||
-              item.productName ||
-              item.name ||
-              'Electrical Product',
-            brand: item.brand || 'VOLTLINE',
-            model: item.model || '',
-            spec: item.estimated_time
-              ? `⏱ ${item.estimated_time} • Warranty: ${item.warranty || '90 Days'}`
-              : item.description ||
-                item.spec ||
-                'Certified Electrical Equipment',
-            price,
-            originalPrice: origPrice,
-            discountPercentage: discount,
-            rating: typeof item.rating === 'number' ? item.rating : 4.8,
-            reviews:
-              typeof item.reviewsCount === 'number'
-                ? item.reviewsCount
-                : item.reviews || 48,
-            badge:
-              item.badge ||
-              (item.type === 'service' ? 'SERVICE' : 'VERIFIED'),
-            inStock:
-              item.inStock !== false &&
-              (item.stock === undefined || item.stock > 0),
-            image:
-              item.image ||
-              (Array.isArray(item.images) ? item.images[0] : '') ||
-              '',
-            category:
-              item.category?._id ||
-              item.category ||
-              'general',
-            isBackend: true,
-          };
-        });
-
-        const uniqueItems = Array.from(
-          new Map(
-            formattedItems.map((item) => [
-              item.id,
-              item,
-            ])
-          ).values()
+        const formattedItems = backendItems.map((item) =>
+          formatCatalogProduct({ ...item, isBackend: true })
         );
 
+        const fallbackCatalog = getFallbackProductsForCategory(
+          selectedCategory,
+          searchQuery
+        );
+
+        let finalItems = [];
+
         if (pageToLoad === 1) {
+          if (formattedItems.length > 0) {
+            // For 'all' category, merge any catalog items (like tools) that are not in backend yet
+            if (!selectedCategory || selectedCategory === 'all') {
+              const existingNames = new Set(
+                formattedItems.map((i) => (i.name || '').toLowerCase())
+              );
+              const missingMock = fallbackCatalog.filter(
+                (m) => !existingNames.has((m.name || '').toLowerCase())
+              );
+              finalItems = [...formattedItems, ...missingMock];
+            } else {
+              finalItems = formattedItems;
+            }
+          } else {
+            // Backend returned 0 items (e.g. Electrician Tools currently has 0 items in MongoDB)
+            // Use fallback catalog so the category always has relevant products
+            finalItems = fallbackCatalog;
+          }
+
+          const uniqueItems = Array.from(
+            new Map(
+              finalItems.map((item) => [
+                item.id,
+                item,
+              ])
+            ).values()
+          );
+
           setDisplayedItems(uniqueItems);
+          setTotalItemsCount(
+            response?.total && response.total > 0
+              ? response.total
+              : uniqueItems.length
+          );
         } else {
           setDisplayedItems((previousItems) =>
             Array.from(
               new Map(
-                [...previousItems, ...uniqueItems].map(
+                [...previousItems, ...formattedItems].map(
                   (item) => [item.id, item]
                 )
               ).values()
@@ -259,22 +265,25 @@ export default function ShopScreen({
           );
         }
 
-        setTotalItemsCount(
-          pageToLoad === 1
-            ? response?.total ?? uniqueItems.length
-            : (response?.total ?? 0)
-        );
-
         setPage(pageToLoad);
-        setHasMore(hasNext);
+        setHasMore(hasNext && formattedItems.length > 0);
       } catch (error) {
-        console.error(
-          'Error fetching products:',
-          error
-        );
+        if (requestId !== activeRequestId.current) return;
+        console.warn('Error fetching products, using fallback catalog:', error.message);
+        if (pageToLoad === 1) {
+          const fallbackCatalog = getFallbackProductsForCategory(
+            selectedCategory,
+            searchQuery
+          );
+          setDisplayedItems(fallbackCatalog);
+          setTotalItemsCount(fallbackCatalog.length);
+          setHasMore(false);
+        }
       } finally {
-        setLoadingItems(false);
-        setLoadingMore(false);
+        if (requestId === activeRequestId.current) {
+          setLoadingItems(false);
+          setLoadingMore(false);
+        }
       }
     },
     [
@@ -547,7 +556,9 @@ export default function ShopScreen({
             </>
           ) : (
             categories.map((category) => {
-              const isSelected = selectedCategory === category.id;
+              const isSelected =
+                isCategoryMatch(selectedCategory, category.id) ||
+                selectedCategory === category.id;
 
               return (
                 <TouchableOpacity

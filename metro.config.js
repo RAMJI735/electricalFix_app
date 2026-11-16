@@ -3,6 +3,9 @@ const { withNativewind } = require('nativewind/metro');
 
 const config = getDefaultConfig(__dirname);
 
+// Limit workers to prevent WASM/Node out-of-memory errors on Windows during native bundling
+config.maxWorkers = 2;
+
 // Optimize bundle size for production
 config.transformer = {
   ...config.transformer,
