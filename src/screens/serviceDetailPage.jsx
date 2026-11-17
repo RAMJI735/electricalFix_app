@@ -23,6 +23,7 @@ import {
 } from '../components/Icons';
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
+import AuthRequiredModal from '../components/AuthRequiredModal';
 
 export default function ServiceDetailPage({
   route,
@@ -33,8 +34,23 @@ export default function ServiceDetailPage({
   onAddToCart,
   onNavigateToCart,
 }) {
-  const serviceId = route?.params?.serviceId || route?.params?.id || propServiceId;
-  const initialService = route?.params?.initialService || route?.params?.service || propInitialService;
+  const serviceId =
+    route?.params?.serviceId ||
+    route?.params?.id ||
+    route?.params?.service?._id ||
+    route?.params?.service?.id ||
+    route?.params?.product?._id ||
+    route?.params?.product?.id ||
+    propServiceId;
+
+  const initialService =
+    route?.params?.initialService ||
+    route?.params?.service ||
+    route?.params?.product ||
+    route?.params?.item ||
+    propInitialService;
+
+  const resolvedServiceId = serviceId || initialService?._id || initialService?.id;
   const onBack = useCallback(() => {
     if (propOnBack) {
       propOnBack();
@@ -65,6 +81,7 @@ export default function ServiceDetailPage({
   const gstType = commerce?.gstType || 'exclusive';
   const taxRate = commerce?.taxRate ?? 18;
   const { isAuthenticated } = useAuth();
+  const [authModalVisible, setAuthModalVisible] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [added, setAdded] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -75,13 +92,22 @@ export default function ServiceDetailPage({
     isLoading: queryLoading,
     error: queryError,
     refetch,
-  } = useServiceDetails(serviceId, {
+  } = useServiceDetails(resolvedServiceId, {
     initialData: initialService || undefined,
   });
 
   const service = fetchedService || initialService;
-  const loading = queryLoading && !service;
-  const error = queryError ? (queryError.message || 'Failed to load details') : null;
+  const hasService = Boolean(
+    service && (service._id || service.id || service.serviceName || service.name)
+  );
+  const loading = queryLoading && !hasService;
+  const error = queryError
+    ? (queryError.message || 'Failed to load details')
+    : (!resolvedServiceId && !hasService)
+    ? 'Product or service not found.'
+    : (!hasService && !queryLoading)
+    ? 'Product or service not found.'
+    : null;
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -119,9 +145,7 @@ export default function ServiceDetailPage({
     }
 
     if (!isAuthenticated) {
-      if (navigation?.navigate) {
-        navigation.navigate('Login');
-      }
+      setAuthModalVisible(true);
       return;
     }
 
@@ -146,6 +170,8 @@ export default function ServiceDetailPage({
           const res = await onAddToCart(itemPayload);
           if (res !== false) {
             setAdded(true);
+          } else {
+            setAuthModalVisible(true);
           }
         } else {
           await addToCart(itemPayload, 1);
@@ -153,10 +179,13 @@ export default function ServiceDetailPage({
         }
       } catch (err) {
         console.warn('Failed to add to cart:', err);
-        if (err?.code === 'AUTH_REQUIRED' || err?.message?.toLowerCase().includes('log in')) {
-          if (navigation?.navigate) {
-            navigation.navigate('Login');
-          }
+        if (
+          err?.code === 'AUTH_REQUIRED' ||
+          err?.message?.toLowerCase().includes('log in') ||
+          err?.message?.toLowerCase().includes('auth') ||
+          err?.response?.status === 401
+        ) {
+          setAuthModalVisible(true);
         }
       } finally {
         setAdding(false);
@@ -229,6 +258,13 @@ export default function ServiceDetailPage({
             activeOpacity={0.7}
           >
             <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.retryButton, { backgroundColor: '#f1f5f9', marginTop: 10 }]}
+            onPress={onBack}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.retryButtonText, { color: '#334155' }]}>Go Back</Text>
           </TouchableOpacity>
         </View>
       ) : (
@@ -445,6 +481,12 @@ export default function ServiceDetailPage({
           </TouchableOpacity>
         </View>
       )}
+
+      <AuthRequiredModal
+        visible={authModalVisible}
+        onClose={() => setAuthModalVisible(false)}
+        navigation={navigation}
+      />
     </SafeAreaView>
   );
 }

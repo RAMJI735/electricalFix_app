@@ -1,6 +1,7 @@
 /* eslint-disable import/no-named-as-default-member */
 import axios from 'axios';
 import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const FALLBACK_API_URL =
   'https://ecom-backend-git-main-ramji735s-projects.vercel.app';
@@ -29,7 +30,21 @@ const getApiBaseUrl = () => {
 const baseURL = getApiBaseUrl();
 console.log(`[API Config] Platform: ${Platform.OS} | BaseURL: ${baseURL}`);
 
-// Main API client (cookie credentials on web, native transport on mobile)
+let inMemoryToken = null;
+let inMemoryRefreshToken = null;
+
+let sessionExpiredHandler = null;
+let tokenRefreshedHandler = null;
+
+export const registerSessionExpiredHandler = (handler) => {
+  sessionExpiredHandler = handler;
+};
+
+export const registerTokenRefreshedHandler = (handler) => {
+  tokenRefreshedHandler = handler;
+};
+
+// Main API client (cookie credentials on web, Bearer auth header on all platforms)
 export const api = axios.create({
   baseURL,
   timeout: 12000,
@@ -40,10 +55,10 @@ export const api = axios.create({
   withCredentials: Platform.OS === 'web',
 });
 
-// Refresh token client
+// Refresh token client (must NEVER send expired access token)
 const refreshApi = axios.create({
   baseURL,
-  timeout: 12000,
+  timeout: 8000,
   headers: {
     'Content-Type': 'application/json',
     Accept: 'application/json',
@@ -51,9 +66,127 @@ const refreshApi = axios.create({
   withCredentials: Platform.OS === 'web',
 });
 
-// Request interceptor to log outgoing requests
+export const setAuthToken = (token, refreshToken = null) => {
+  inMemoryToken = token || null;
+  if (refreshToken) {
+    inMemoryRefreshToken = refreshToken;
+  }
+  if (token) {
+    api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+  } else {
+    delete api.defaults.headers.common['Authorization'];
+  }
+  // Guarantee refreshApi never carries an access token
+  delete refreshApi.defaults.headers.common['Authorization'];
+  delete refreshApi.defaults.headers.common['authorization'];
+};
+
+export const setRefreshToken = (refreshToken) => {
+  inMemoryRefreshToken = refreshToken || null;
+};
+
+export const getActiveToken = async () => {
+  if (inMemoryToken) {
+    return inMemoryToken;
+  }
+  try {
+    let stored = null;
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      stored =
+        window.localStorage?.getItem('voltline_auth_token') ||
+        window.sessionStorage?.getItem('voltline_auth_token');
+    }
+    if (!stored) {
+      stored = await AsyncStorage.getItem('voltline_auth_token');
+    }
+    if (stored) {
+      inMemoryToken = stored;
+      return stored;
+    }
+  } catch (_e) {}
+  return null;
+};
+
+export const getActiveRefreshToken = async () => {
+  if (inMemoryRefreshToken) {
+    return inMemoryRefreshToken;
+  }
+  try {
+    let stored = null;
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      stored =
+        window.localStorage?.getItem('voltline_refresh_token') ||
+        window.sessionStorage?.getItem('voltline_refresh_token');
+    }
+    if (!stored) {
+      stored = await AsyncStorage.getItem('voltline_refresh_token');
+    }
+    if (stored) {
+      inMemoryRefreshToken = stored;
+      return stored;
+    }
+  } catch (_e) {}
+  return null;
+};
+
+export const persistTokens = async ({ token, refreshToken }) => {
+  if (token) {
+    setAuthToken(token);
+    try {
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        window.localStorage?.setItem('voltline_auth_token', token);
+      }
+      await AsyncStorage.setItem('voltline_auth_token', token);
+    } catch (_e) {}
+  }
+  if (refreshToken) {
+    setRefreshToken(refreshToken);
+    try {
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        window.localStorage?.setItem('voltline_refresh_token', refreshToken);
+      }
+      await AsyncStorage.setItem('voltline_refresh_token', refreshToken);
+    } catch (_e) {}
+  }
+};
+
+export const clearAllTokens = async () => {
+  setAuthToken(null);
+  inMemoryRefreshToken = null;
+  try {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      window.localStorage?.removeItem('voltline_auth_token');
+      window.localStorage?.removeItem('voltline_refresh_token');
+      window.localStorage?.removeItem('voltline_auth_user');
+      window.sessionStorage?.removeItem('voltline_auth_token');
+      window.sessionStorage?.removeItem('voltline_refresh_token');
+      window.sessionStorage?.removeItem('voltline_auth_user');
+    }
+    await AsyncStorage.multiRemove([
+      'voltline_auth_token',
+      'voltline_refresh_token',
+      'voltline_auth_user',
+    ]);
+  } catch (_e) {}
+};
+
+// Request interceptor to attach Authorization header and log outgoing requests
 api.interceptors.request.use(
-  (config) => {
+  async (config) => {
+    try {
+      const token = inMemoryToken || (await getActiveToken());
+      if (token) {
+        config.headers = config.headers || {};
+        delete config.headers.authorization;
+        if (typeof config.headers.set === 'function') {
+          config.headers.set('Authorization', `Bearer ${token}`);
+        } else {
+          config.headers.Authorization = `Bearer ${token}`;
+          config.headers.authorization = `Bearer ${token}`;
+        }
+      }
+    } catch (_e) {}
+
     const fullUrl = `${config.baseURL || ''}${config.url || ''}`;
     console.log(`[API Request] ${config.method?.toUpperCase()} -> ${fullUrl}`);
     return config;
@@ -62,29 +195,6 @@ api.interceptors.request.use(
 );
 
 let refreshPromise = null;
-
-// Ensure NO access or refresh tokens ever remain in JavaScript storage (localStorage/sessionStorage)
-if (Platform.OS === 'web' && typeof window !== 'undefined') {
-  try {
-    if (window.localStorage) {
-      window.localStorage.removeItem('voltline_auth_token');
-      window.localStorage.removeItem('token');
-    }
-    if (window.sessionStorage) {
-      window.sessionStorage.removeItem('voltline_auth_token');
-      window.sessionStorage.removeItem('token');
-    }
-  } catch (_e) { }
-}
-
-// Token helper stubs kept for backwards compatibility (tokens live strictly in HttpOnly cookies)
-export const setAuthToken = (_token) => {
-  // No-op: Tokens are managed strictly via HttpOnly cookies and never stored in JavaScript
-};
-
-export const getActiveToken = async () => {
-  return null;
-};
 
 api.interceptors.response.use(
   (response) => response,
@@ -105,8 +215,8 @@ api.interceptors.response.use(
 
     const requestUrl = originalRequest.url || '';
 
-    const isRefreshRequest =
-      requestUrl.includes('/auth/new-accesstoken');
+    const isRefreshRequest = requestUrl.includes('/auth/new-accesstoken') ||
+      requestUrl.includes('/auth/refresh');
 
     const isAuthRequest = [
       '/auth/login',
@@ -146,26 +256,84 @@ api.interceptors.response.use(
     originalRequest._retry = true;
 
     try {
-      // Only one refresh request for simultaneous 401 responses
+      const refreshToken = await getActiveRefreshToken();
+
+      if (!refreshToken) {
+        await clearAllTokens();
+        if (sessionExpiredHandler) {
+          try {
+            sessionExpiredHandler();
+          } catch (_e) {}
+        }
+        return Promise.reject(new Error('Session expired. Please log in again.'));
+      }
+
+      // Only one refresh request for concurrent 401 responses
       if (!refreshPromise) {
         refreshPromise = refreshApi
-          .post('/auth/new-accesstoken')
+          .post(
+            '/auth/new-accesstoken',
+            { refreshToken },
+            {
+              headers: {
+                'x-refresh-token': refreshToken,
+              },
+              timeout: 8000,
+            }
+          )
+          .then(async (res) => {
+            const newToken =
+              res.data?.token ||
+              res.data?.accessToken ||
+              res.data?.data?.token ||
+              res.data?.data?.accessToken;
+            const newRefreshToken =
+              res.data?.refreshToken ||
+              res.data?.data?.refreshToken;
+
+            if (newToken) {
+              await persistTokens({
+                token: newToken,
+                refreshToken: newRefreshToken || refreshToken,
+              });
+              if (tokenRefreshedHandler) {
+                try {
+                  tokenRefreshedHandler(newToken);
+                } catch (_e) {}
+              }
+              return newToken;
+            }
+            throw new Error('New access token not provided in refresh response');
+          })
           .finally(() => {
             refreshPromise = null;
           });
       }
 
-      // Wait until backend sets the new HttpOnly access cookie
-      await refreshPromise;
+      const newToken = await refreshPromise;
+      if (newToken) {
+        originalRequest.headers = originalRequest.headers || {};
+        delete originalRequest.headers.authorization;
+        delete originalRequest.headers.Authorization;
+        if (typeof originalRequest.headers.set === 'function') {
+          originalRequest.headers.set('Authorization', `Bearer ${newToken}`);
+        } else {
+          originalRequest.headers.Authorization = `Bearer ${newToken}`;
+          originalRequest.headers.authorization = `Bearer ${newToken}`;
+        }
+      }
 
-      // Retry original request with updated cookie
       return api(originalRequest);
-
     } catch (refreshError) {
-      if (
-        Platform.OS === 'web' &&
-        typeof window !== 'undefined'
-      ) {
+      await clearAllTokens();
+
+      if (sessionExpiredHandler) {
+        try {
+          sessionExpiredHandler();
+        } catch (_e) {}
+      }
+
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
         window.dispatchEvent(new Event('auth:logout'));
       }
 
@@ -173,7 +341,5 @@ api.interceptors.response.use(
     }
   }
 );
-
-
 
 export default api;

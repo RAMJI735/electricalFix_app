@@ -113,9 +113,9 @@ export default function OrdersScreen({
 
   // Filter orders
   const filteredOrders = orders.filter((order) => {
-    const st = (order.orderStatus || 'Confirmed').toLowerCase();
+    const st = (order.orderStatus || 'Placed').toLowerCase();
     if (filterTab === 'active') {
-      return ['placed', 'confirmed', 'processing', 'out for delivery'].includes(st);
+      return ['placed', 'confirmed', 'processing', 'out for delivery', 'dispatched'].includes(st);
     }
     if (filterTab === 'delivered') {
       return st === 'delivered';
@@ -126,18 +126,23 @@ export default function OrdersScreen({
     return true;
   });
 
-  const getStatusColor = (status = 'Confirmed') => {
-    switch (status.toLowerCase()) {
+  const getStatusColor = (status = 'Placed') => {
+    switch ((status || '').toLowerCase()) {
+      case 'placed':
+        return { bg: '#eff6ff', text: '#2563eb', border: '#bfdbfe' };
+      case 'confirmed':
+        return { bg: '#ecfdf5', text: '#059669', border: '#a7f3d0' };
       case 'delivered':
         return { bg: '#f0fdf4', text: '#15803d', border: '#bbf7d0' };
       case 'cancelled':
         return { bg: '#fef2f2', text: '#b91c1c', border: '#fecaca' };
       case 'out for delivery':
+      case 'dispatched':
         return { bg: '#faf5ff', text: '#7e22ce', border: '#e9d5ff' };
       case 'processing':
         return { bg: '#fffbeb', text: '#b45309', border: '#fde68a' };
       default:
-        return { bg: '#eff6ff', text: '#1d4ed8', border: '#bfdbfe' };
+        return { bg: '#eff6ff', text: '#2563eb', border: '#bfdbfe' };
     }
   };
 
@@ -329,7 +334,7 @@ export default function OrdersScreen({
                         { color: statusStyle.text },
                       ]}
                     >
-                      {order.orderStatus || 'Confirmed'}
+                      {order.orderStatus || 'Placed'}
                     </Text>
                   </View>
                 </View>

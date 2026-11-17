@@ -1,12 +1,21 @@
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { api, setAuthToken } from '../utils/api';
+import {
+  api,
+  setAuthToken,
+  getActiveToken,
+  getActiveRefreshToken,
+  persistTokens,
+  clearAllTokens,
+} from '../utils/api';
 
 const USER_KEY = 'voltline_auth_user';
+const TOKEN_KEY = 'voltline_auth_token';
+const REFRESH_TOKEN_KEY = 'voltline_refresh_token';
 
 const memoryStore = new Map();
 
-// Storage strictly for user profile data (NO tokens are ever stored here)
+// Storage for user profile and authentication tokens
 const storage = {
   getItem: async (key) => {
     if (memoryStore.has(key)) {
@@ -39,18 +48,10 @@ const storage = {
 
     try {
       if (Platform.OS === 'web' && typeof window !== 'undefined') {
-        // Enforce user rule: purge any residual tokens from localStorage/sessionStorage
         if (window.localStorage) {
-          window.localStorage.removeItem('token');
-          window.localStorage.removeItem('voltline_auth_token');
           window.localStorage.setItem(key, value);
         }
-        if (window.sessionStorage) {
-          window.sessionStorage.removeItem('token');
-          window.sessionStorage.removeItem('voltline_auth_token');
-        }
       } else {
-        // AsyncStorage: used ONLY for optional user profile, NEVER for tokens
         await AsyncStorage.setItem(key, value);
       }
     } catch (_e) {}
@@ -63,19 +64,12 @@ const storage = {
       if (Platform.OS === 'web' && typeof window !== 'undefined') {
         if (window.localStorage) {
           window.localStorage.removeItem(key);
-          window.localStorage.removeItem('user');
-          window.localStorage.removeItem('token');
-          window.localStorage.removeItem('voltline_auth_token');
         }
         if (window.sessionStorage) {
           window.sessionStorage.removeItem(key);
-          window.sessionStorage.removeItem('user');
-          window.sessionStorage.removeItem('token');
-          window.sessionStorage.removeItem('voltline_auth_token');
         }
       } else {
         await AsyncStorage.removeItem(key);
-        await AsyncStorage.removeItem('user').catch(() => {});
       }
     } catch (_e) {}
   },
@@ -84,8 +78,6 @@ const storage = {
 export const AuthService = {
   /**
    * Log in user
-   * Authentication tokens are set and managed purely through HttpOnly cookies by the server.
-   * JavaScript does not store any tokens.
    */
   async login({ email, password }) {
     const response = await api.post('/auth/login', {
@@ -93,13 +85,28 @@ export const AuthService = {
       password,
     });
 
+    const token =
+      response.data?.token ||
+      response.data?.data?.token ||
+      null;
+    const refreshToken =
+      response.data?.refreshToken ||
+      response.data?.data?.refreshToken ||
+      null;
     const user =
       response.data?.data?.user ||
       response.data?.data ||
       response.data?.user ||
       null;
 
-    // Optional user profile caching (strictly stripped of any token properties)
+    if (token) {
+      await persistTokens({ token, refreshToken });
+      await storage.setItem(TOKEN_KEY, token);
+      if (refreshToken) {
+        await storage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+      }
+    }
+
     if (user) {
       const cleanUser = { ...user };
       delete cleanUser.token;
@@ -107,11 +114,9 @@ export const AuthService = {
       await storage.setItem(USER_KEY, JSON.stringify(cleanUser));
     }
 
-    setAuthToken(null);
-
     return {
       user,
-      token: null, // Tokens are not stored in JS
+      token,
       message: response.data?.message,
     };
   },
@@ -124,7 +129,40 @@ export const AuthService = {
       phone: phone ? phone.trim() : '',
     });
 
-    return response.data;
+    const token =
+      response.data?.token ||
+      response.data?.data?.token ||
+      null;
+    const refreshToken =
+      response.data?.refreshToken ||
+      response.data?.data?.refreshToken ||
+      null;
+    const user =
+      response.data?.data?.user ||
+      response.data?.data ||
+      response.data?.user ||
+      null;
+
+    if (token) {
+      await persistTokens({ token, refreshToken });
+      await storage.setItem(TOKEN_KEY, token);
+      if (refreshToken) {
+        await storage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+      }
+    }
+
+    if (user) {
+      const cleanUser = { ...user };
+      delete cleanUser.token;
+      delete cleanUser.refreshToken;
+      await storage.setItem(USER_KEY, JSON.stringify(cleanUser));
+    }
+
+    return {
+      user,
+      token,
+      message: response.data?.message,
+    };
   },
 
   async sendOtp(email) {
@@ -166,15 +204,21 @@ export const AuthService = {
 
   /**
    * Log out user
-   * Clears HttpOnly cookies on the backend and purges local cached profile.
+   * Guarantees local storage and memory are always cleared, even if server request times out.
    */
   async logout() {
     try {
-      await api.post('/auth/logout');
+      // 2-second timeout for server notification so UI logout never hangs
+      await Promise.race([
+        api.post('/auth/logout'),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000)),
+      ]);
     } catch (_e) {
-      // Continue local logout even if network request fails
+      // Continue local logout even if network request fails or times out
     } finally {
-      setAuthToken(null);
+      await clearAllTokens();
+      await storage.removeItem(TOKEN_KEY);
+      await storage.removeItem(REFRESH_TOKEN_KEY);
       await storage.removeItem(USER_KEY);
     }
 
@@ -197,7 +241,7 @@ export const AuthService = {
   },
 
   /**
-   * Verify authenticated session with backend via HttpOnly cookies
+   * Verify authenticated session with backend
    */
   async getProfile() {
     const response = await api.get('/api/auth/me');
@@ -216,43 +260,69 @@ export const AuthService = {
 
   /**
    * Restore user session:
-   * First asks backend /api/auth/me via HttpOnly cookie.
-   * If cookie is valid, user is authenticated without any JS token storage.
+   * Checks stored token and verifies profile with backend.
    */
   async restoreSessionAsync() {
     try {
-      // 1. Purge any legacy tokens from localStorage/sessionStorage
-      if (Platform.OS === 'web' && typeof window !== 'undefined') {
-        window.localStorage?.removeItem('token');
-        window.localStorage?.removeItem('voltline_auth_token');
-        window.sessionStorage?.removeItem('token');
-        window.sessionStorage?.removeItem('voltline_auth_token');
-      }
-
-      // 2. Verify active session with backend via HttpOnly cookies
-      let freshUser = null;
-      try {
-        freshUser = await this.getProfile();
-      } catch (_authErr) {
-        // Unauthenticated or cookies expired
-      }
-
-      if (freshUser) {
-        return {
-          user: freshUser,
-          token: null,
-        };
-      }
-
-      // 3. Fallback: if backend is unreachable, check cached user profile
+      const storedToken = (await storage.getItem(TOKEN_KEY)) || (await getActiveToken());
+      const storedRefreshToken = (await storage.getItem(REFRESH_TOKEN_KEY)) || (await getActiveRefreshToken());
       const storedUser = await storage.getItem(USER_KEY);
       const parsedUser = storedUser ? JSON.parse(storedUser) : null;
 
+      if (storedToken) {
+        setAuthToken(storedToken, storedRefreshToken);
+
+        try {
+          const freshUser = await Promise.race([
+            this.getProfile(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 4000)),
+          ]);
+          if (freshUser) {
+            const currentToken = (await getActiveToken()) || storedToken;
+            return {
+              user: freshUser,
+              token: currentToken,
+            };
+          }
+        } catch (_authErr) {
+          // If 401 occurred, check if token was refreshed by response interceptor
+          const refreshedToken = await getActiveToken();
+          if (refreshedToken && refreshedToken !== storedToken) {
+            try {
+              const freshUser = await this.getProfile();
+              if (freshUser) {
+                return { user: freshUser, token: refreshedToken };
+              }
+            } catch (_e2) {}
+          }
+
+          if (_authErr?.response?.status === 401 || _authErr?.message?.includes('401')) {
+            await clearAllTokens();
+            await storage.removeItem(TOKEN_KEY);
+            await storage.removeItem(REFRESH_TOKEN_KEY);
+            await storage.removeItem(USER_KEY);
+            return { user: null, token: null };
+          }
+        }
+
+        if (parsedUser) {
+          const currentToken = (await getActiveToken()) || storedToken;
+          return {
+            user: parsedUser,
+            token: currentToken,
+          };
+        }
+      }
+
+      await clearAllTokens();
       return {
-        user: parsedUser || null,
+        user: null,
         token: null,
       };
     } catch (_e) {
+      await clearAllTokens();
+      await storage.removeItem(TOKEN_KEY);
+      await storage.removeItem(REFRESH_TOKEN_KEY);
       await storage.removeItem(USER_KEY);
 
       return {
@@ -265,16 +335,28 @@ export const AuthService = {
   async getStoredSession() {
     try {
       const storedUser = await storage.getItem(USER_KEY);
+      const storedToken = (await storage.getItem(TOKEN_KEY)) || (await getActiveToken());
 
       return {
         user: storedUser ? JSON.parse(storedUser) : null,
-        token: null,
+        token: storedToken || null,
       };
     } catch (_e) {
       return {
         user: null,
         token: null,
       };
+    }
+  },
+
+  getStoredSessionSync() {
+    try {
+      const rawUser = memoryStore.get(USER_KEY);
+      const user = rawUser ? JSON.parse(rawUser) : null;
+      const token = memoryStore.get(TOKEN_KEY) || null;
+      return { user, token };
+    } catch (_e) {
+      return { user: null, token: null };
     }
   },
 };

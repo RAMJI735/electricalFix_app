@@ -17,8 +17,6 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   ELECTRICAL_CATEGORIES,
-  MOCK_PRODUCTS,
-  CATEGORY_MAP,
   isCategoryMatch,
   formatCatalogProduct,
   getFallbackProductsForCategory,
@@ -26,6 +24,8 @@ import {
 import { useCategories, useSettings } from '../hooks';
 import CategoryService from '../../services/categoryService';
 import { useCart } from '../context/CartContext';
+import { useAuth } from '../context/AuthContext';
+import AuthRequiredModal from '../components/AuthRequiredModal';
 import {
   ArrowLeftIcon,
   SearchIcon,
@@ -38,7 +38,7 @@ import {
   CategoryPillSkeleton,
 } from '../components/Skeleton';
 
-const PAGE_SIZE = 4;
+const PAGE_SIZE = 10;
 
 export default function ShopScreen({
   route,
@@ -52,6 +52,8 @@ export default function ShopScreen({
   const currentCategory = route?.params?.categoryId || route?.params?.category || propInitialCategory || 'all';
   const queryClient = useQueryClient();
   const { isInCart, addToCart } = useCart();
+  const { isAuthenticated } = useAuth();
+  const [authModalVisible, setAuthModalVisible] = useState(false);
   const { commerce } = useSettings();
   const gstType = commerce?.gstType || 'exclusive';
   const taxRate = commerce?.taxRate ?? 18;
@@ -60,23 +62,39 @@ export default function ShopScreen({
     propOnSelectService ||
     ((product) =>
       navigation?.navigate('ServiceDetail', {
-        serviceId: product.id || product._id,
+        serviceId: product._id || product.id,
+        initialService: product,
+        service: product,
       }));
   const onNavigateToCart =
     propOnNavigateToCart || (() => navigation?.navigate('Cart'));
   const onAddToCart =
     propOnAddToCart ||
     (async (product) => {
-      try {
-        return await addToCart(product, 1);
-      } catch (e) {
-        console.warn('Shop add to cart error:', e);
-      }
+      return await addToCart(product, 1);
     });
 
   const [selectedCategory, setSelectedCategory] = useState(currentCategory);
-  const [prevInitialCategory, setPrevInitialCategory] = useState(currentCategory);
   const [searchQuery, setSearchQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingItems, setLoadingItems] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [displayedItems, setDisplayedItems] = useState([]);
+  const [totalItemsCount, setTotalItemsCount] = useState(0);
+  const [addingProductId, setAddingProductId] = useState(null);
+
+  const activeRequestId = useRef(0);
+
+  // Sync category when navigating into ShopScreen with different category params (e.g. from banner or category clicks)
+  useEffect(() => {
+    if (currentCategory && currentCategory !== selectedCategory) {
+      setDisplayedItems([]);
+      setLoadingItems(true);
+      setSelectedCategory(currentCategory);
+    }
+  }, [currentCategory]);
 
   const handleBack = useCallback(() => {
     if (searchQuery && searchQuery.trim().length > 0) {
@@ -113,30 +131,12 @@ export default function ShopScreen({
     }, [handleBack])
   );
 
-  if (currentCategory !== prevInitialCategory) {
-    setPrevInitialCategory(currentCategory);
-    setSelectedCategory(currentCategory);
-    setDisplayedItems([]);
-    setLoadingItems(true);
-  }
-
   const handleSelectCategory = useCallback((categoryId) => {
     if (isCategoryMatch(categoryId, selectedCategory) || categoryId === selectedCategory) return;
     setDisplayedItems([]);
     setLoadingItems(true);
     setSelectedCategory(categoryId);
   }, [selectedCategory]);
-
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
-  const [loadingItems, setLoadingItems] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [displayedItems, setDisplayedItems] = useState([]);
-  const [totalItemsCount, setTotalItemsCount] = useState(0);
-  const [addingProductId, setAddingProductId] = useState(null);
-
-  const activeRequestId = useRef(0);
 
   const {
     data: categoryData,
@@ -266,7 +266,26 @@ export default function ShopScreen({
         }
 
         setPage(pageToLoad);
-        setHasMore(hasNext && formattedItems.length > 0);
+        const moreAvailable = hasNext && formattedItems.length > 0;
+        setHasMore(moreAvailable);
+
+        // Immediate background prefetching of the next page so scrolling has ZERO delay
+        if (moreAvailable) {
+          const nextPage = pageToLoad + 1;
+          const nextQueryParams = {
+            page: nextPage,
+            limit: PAGE_SIZE,
+            search: searchQuery.trim(),
+            categoryId: selectedCategory || 'all',
+          };
+          const nextQueryKey = ['services', 'paginated', nextQueryParams];
+
+          queryClient.prefetchQuery({
+            queryKey: nextQueryKey,
+            queryFn: () => CategoryService.getServicesPaginated(nextQueryParams),
+            staleTime: 1000 * 60 * 5,
+          });
+        }
       } catch (error) {
         if (requestId !== activeRequestId.current) return;
         console.warn('Error fetching products, using fallback catalog:', error.message);
@@ -333,12 +352,28 @@ export default function ShopScreen({
 
     if (addingProductId || !onAddToCart) return;
 
+    if (!isAuthenticated) {
+      setAuthModalVisible(true);
+      return;
+    }
+
     setAddingProductId(productId);
 
     try {
-      await onAddToCart(product);
+      const res = await onAddToCart(product);
+      if (res === false) {
+        setAuthModalVisible(true);
+      }
     } catch (error) {
       console.warn('Failed to add to cart:', error);
+      if (
+        error?.code === 'AUTH_REQUIRED' ||
+        error?.message?.toLowerCase().includes('log in') ||
+        error?.message?.toLowerCase().includes('auth') ||
+        error?.response?.status === 401
+      ) {
+        setAuthModalVisible(true);
+      }
     } finally {
       setAddingProductId(null);
     }
@@ -605,12 +640,12 @@ export default function ShopScreen({
         contentContainerStyle={styles.productsContent}
         showsVerticalScrollIndicator={false}
         onEndReached={handleLoadMore}
-        onEndReachedThreshold={0.4}
+        onEndReachedThreshold={0.8}
         removeClippedSubviews={Platform.OS === 'android'}
-        maxToRenderPerBatch={6}
-        windowSize={5}
-        initialNumToRender={4}
-        updateCellsBatchingPeriod={50}
+        maxToRenderPerBatch={10}
+        windowSize={9}
+        initialNumToRender={8}
+        updateCellsBatchingPeriod={25}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -659,6 +694,11 @@ export default function ShopScreen({
           )
         }
         ListFooterComponent={renderFooter}
+      />
+      <AuthRequiredModal
+        visible={authModalVisible}
+        onClose={() => setAuthModalVisible(false)}
+        navigation={navigation}
       />
     </View>
   );

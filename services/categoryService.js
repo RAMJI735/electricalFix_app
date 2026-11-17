@@ -108,12 +108,13 @@ export const CategoryService = {
     try {
       let response;
       if (!resolvedCategoryId || resolvedCategoryId === 'all') {
-        response = await api.get('/api/services', { params });
+        response = await api.get('/api/services', { params, timeout: 5000 });
       } else if (isMongoId(resolvedCategoryId)) {
-        response = await api.get(`/api/categories/${resolvedCategoryId}/services`, { params });
+        response = await api.get(`/api/categories/${resolvedCategoryId}/services`, { params, timeout: 5000 });
       } else {
         response = await api.get('/api/services', {
           params: { search: resolvedCategoryId, ...params },
+          timeout: 5000,
         });
       }
 
@@ -142,51 +143,48 @@ export const CategoryService = {
         hasNextPage,
       };
     } catch (error) {
-      // Fallback: /api/services?category=:id
-      try {
-        const queryParams = { ...params };
-        if (resolvedCategoryId && resolvedCategoryId !== 'all') {
-          if (isMongoId(resolvedCategoryId)) {
-            queryParams.category = resolvedCategoryId;
-          } else {
-            queryParams.search = resolvedCategoryId;
-          }
+      // Only fallback if a specific subroute failed (e.g. /api/categories/:id/services)
+      if (resolvedCategoryId && resolvedCategoryId !== 'all' && isMongoId(resolvedCategoryId)) {
+        try {
+          const queryParams = { ...params, category: resolvedCategoryId };
+          const fallback = await api.get('/api/services', { params: queryParams, timeout: 5000 });
+          const resData = fallback.data;
+          const items = Array.isArray(resData?.data)
+            ? resData.data
+            : Array.isArray(resData)
+            ? resData
+            : [];
+
+          const total = typeof resData?.total === 'number' ? resData.total : items.length;
+          const totalPages =
+            typeof resData?.totalPages === 'number'
+              ? resData.totalPages
+              : Math.ceil(total / limit) || 1;
+          const hasNextPage =
+            typeof resData?.hasNextPage === 'boolean'
+              ? resData.hasNextPage
+              : page < totalPages;
+
+          return {
+            items,
+            page: resData?.page || page,
+            totalPages,
+            total,
+            hasNextPage,
+          };
+        } catch (_fallbackError) {
+          // ignore fallback error
         }
-        const fallback = await api.get('/api/services', { params: queryParams });
-        const resData = fallback.data;
-        const items = Array.isArray(resData?.data)
-          ? resData.data
-          : Array.isArray(resData)
-          ? resData
-          : [];
-
-        const total = typeof resData?.total === 'number' ? resData.total : items.length;
-        const totalPages =
-          typeof resData?.totalPages === 'number'
-            ? resData.totalPages
-            : Math.ceil(total / limit) || 1;
-        const hasNextPage =
-          typeof resData?.hasNextPage === 'boolean'
-            ? resData.hasNextPage
-            : page < totalPages;
-
-        return {
-          items,
-          page: resData?.page || page,
-          totalPages,
-          total,
-          hasNextPage,
-        };
-      } catch (fallbackError) {
-        console.warn('Error fetching paginated services, returning empty response:', fallbackError.message);
-        return {
-          items: [],
-          page,
-          totalPages: 1,
-          total: 0,
-          hasNextPage: false,
-        };
       }
+
+      console.warn('Error fetching paginated services, returning empty response:', error.message);
+      return {
+        items: [],
+        page,
+        totalPages: 1,
+        total: 0,
+        hasNextPage: false,
+      };
     }
   },
 

@@ -15,6 +15,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useOrderDetails, useCancelOrderMutation, useSettings } from '../hooks';
 import { useCart } from '../context/CartContext';
+import AuthRequiredModal from '../components/AuthRequiredModal';
 import {
   ArrowLeftIcon,
   CheckCircleIcon,
@@ -32,6 +33,7 @@ export default function OrderDetailPage({
 }) {
   const orderId = route?.params?.orderId || route?.params?.id || propOrderId;
   const initialOrder = route?.params?.initialOrder || route?.params?.order || propInitialOrder;
+  const [authModalVisible, setAuthModalVisible] = useState(false);
   const onBack = propOnBack || (() => {
     if (navigation?.canGoBack && navigation.canGoBack()) {
       navigation.goBack();
@@ -133,6 +135,11 @@ export default function OrderDetailPage({
       }
     } catch (err) {
       console.error('Reorder error:', err);
+      if (err?.code === 'AUTH_REQUIRED' || err?.message?.toLowerCase().includes('log in')) {
+        setAuthModalVisible(true);
+      } else {
+        Alert.alert('Error', err?.message || 'Failed to reorder items.');
+      }
     } finally {
       setReordering(false);
     }
@@ -150,7 +157,7 @@ export default function OrderDetailPage({
     } else {
       try {
         await Share.share({ message });
-      } catch (e) {
+      } catch (_e) {
         // Ignore share dismiss
       }
     }
@@ -182,21 +189,68 @@ export default function OrderDetailPage({
     );
   }
 
-  const orderStatus = order?.orderStatus || 'Confirmed';
+  const orderStatus = order?.orderStatus || 'Placed';
   const isCancellable = ['placed', 'confirmed'].includes(orderStatus.toLowerCase());
 
   const getStatusTheme = (status) => {
-    switch (status.toLowerCase()) {
-      case 'delivered':
-        return { bg: '#f0fdf4', color: '#15803d', border: '#bbf7d0', icon: '✅', title: 'Delivered to Site' };
-      case 'cancelled':
-        return { bg: '#fef2f2', color: '#b91c1c', border: '#fecaca', icon: '❌', title: 'Order Cancelled' };
-      case 'out for delivery':
-        return { bg: '#faf5ff', color: '#7e22ce', border: '#e9d5ff', icon: '🚚', title: 'Out for Site Delivery' };
+    switch ((status || '').toLowerCase()) {
+      case 'placed':
+        return {
+          bg: '#eff6ff',
+          color: '#1d4ed8',
+          border: '#bfdbfe',
+          icon: '📝',
+          title: 'Order Placed',
+        };
+      case 'confirmed':
+        return {
+          bg: '#f0fdf4',
+          color: '#15803d',
+          border: '#bbf7d0',
+          icon: '⚡',
+          title: 'Confirmed & Scheduled',
+        };
       case 'processing':
-        return { bg: '#fffbeb', color: '#b45309', border: '#fde68a', icon: '📦', title: 'Packing & Quality Check' };
+        return {
+          bg: '#fffbeb',
+          color: '#b45309',
+          border: '#fde68a',
+          icon: '📦',
+          title: 'Packing & Quality Check',
+        };
+      case 'out for delivery':
+      case 'dispatched':
+        return {
+          bg: '#faf5ff',
+          color: '#7e22ce',
+          border: '#e9d5ff',
+          icon: '🚚',
+          title: 'Out for Site Delivery',
+        };
+      case 'delivered':
+        return {
+          bg: '#f0fdf4',
+          color: '#15803d',
+          border: '#bbf7d0',
+          icon: '✅',
+          title: 'Delivered to Site',
+        };
+      case 'cancelled':
+        return {
+          bg: '#fef2f2',
+          color: '#b91c1c',
+          border: '#fecaca',
+          icon: '❌',
+          title: 'Order Cancelled',
+        };
       default:
-        return { bg: '#eff6ff', color: '#1d4ed8', border: '#bfdbfe', icon: '⚡', title: 'Confirmed & Scheduled' };
+        return {
+          bg: '#eff6ff',
+          color: '#1d4ed8',
+          border: '#bfdbfe',
+          icon: '📝',
+          title: `Order ${status || 'Placed'}`,
+        };
     }
   };
 
@@ -235,17 +289,22 @@ export default function OrderDetailPage({
   ];
 
   const getStageIndex = (st) => {
-    switch (st.toLowerCase()) {
+    switch ((st || '').toLowerCase()) {
       case 'cancelled':
         return -1;
       case 'delivered':
         return 3;
       case 'out for delivery':
+      case 'dispatched':
         return 2;
       case 'processing':
         return 1;
+      case 'confirmed':
+        return 1;
+      case 'placed':
+        return 0;
       default:
-        return 1; // Confirmed
+        return 0;
     }
   };
 
@@ -755,6 +814,12 @@ export default function OrderDetailPage({
           </View>
         </View>
       </Modal>
+
+      <AuthRequiredModal
+        visible={authModalVisible}
+        onClose={() => setAuthModalVisible(false)}
+        navigation={navigation}
+      />
     </SafeAreaView>
   );
 }

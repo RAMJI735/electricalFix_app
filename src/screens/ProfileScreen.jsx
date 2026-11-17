@@ -53,8 +53,17 @@ export default function ProfileScreen({
   const onNavigateToOrders = propOnNavigateToOrders || (() => navigation?.navigate('Orders'));
   const onNavigateToAddresses = propOnNavigateToAddresses || (() => navigation?.navigate('Addresses'));
   const onNavigateToAuth = propOnNavigateToAuth || ((screen) => navigation?.navigate(screen === 'signup' ? 'SignUp' : 'Login'));
-  const { user, isAuthenticated, logout, updateProfile, refreshProfile } = useAuth();
+  const {
+    user,
+    isAuthenticated,
+    isLoading: authLoading,
+    isRefreshingProfile,
+    logout,
+    updateProfile,
+    refreshProfile,
+  } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   // Dynamic Store & App Settings
   const {
@@ -131,6 +140,12 @@ export default function ProfileScreen({
     }
   };
 
+  const isProfileLoading =
+    authLoading ||
+    (isRefreshingProfile && !user?.name) ||
+    (refreshing && !user?.name) ||
+    (!user?.name && isAuthenticated);
+
   const displayName = user?.name || (isAuthenticated ? 'Electrical Contractor' : 'Guest Contractor');
   const displayEmail = user?.email || (isAuthenticated ? 'contractor@voltline.in' : 'Not signed in');
   const initials = displayName
@@ -141,9 +156,25 @@ export default function ProfileScreen({
     .toUpperCase();
 
   const handleLogout = async () => {
-    await logout();
-    if (onNavigateToAuth) {
-      onNavigateToAuth('login');
+    if (isLoggingOut) return;
+    setIsLoggingOut(true);
+    try {
+      await logout();
+    } catch (_e) {
+      console.warn('Logout error:', _e);
+    } finally {
+      setIsLoggingOut(false);
+      try {
+        if (onNavigateToAuth) {
+          onNavigateToAuth('login');
+        } else if (navigation?.navigate) {
+          navigation.navigate('Login');
+        }
+      } catch (_navErr) {
+        try {
+          navigation?.getParent?.()?.navigate('Login');
+        } catch (_e2) {}
+      }
     }
   };
 
@@ -209,34 +240,57 @@ export default function ProfileScreen({
       {/* User Info Card */}
       <View style={styles.userCard}>
         <View style={styles.avatarCircle}>
-          <Text style={styles.avatarText}>{initials || 'VL'}</Text>
+          {isProfileLoading ? (
+            <ActivityIndicator size="small" color="#ffffff" />
+          ) : (
+            <Text style={styles.avatarText}>{initials || 'VL'}</Text>
+          )}
         </View>
         <View style={styles.userInfo}>
-          <View style={styles.nameRow}>
-            <Text style={styles.userName}>{displayName}</Text>
-            <CheckCircleIcon size={16} color="#2563eb" />
-          </View>
-          <Text style={styles.userEmail}>{displayEmail}</Text>
-          {!!user?.phone && (
-            <Text style={styles.userPhone}>📞 {user.phone}</Text>
-          )}
-          {!!user?.companyName && (
-            <Text style={styles.userCompany}>🏢 {user.companyName}</Text>
+          {isProfileLoading ? (
+            <View style={styles.userLoadingContainer}>
+              <View style={styles.nameLoadingRow}>
+                <ActivityIndicator size="small" color="#2563eb" />
+                <Text style={styles.nameLoadingText}>Loading profile...</Text>
+              </View>
+              <Text style={styles.emailLoadingText}>Fetching account details...</Text>
+            </View>
+          ) : (
+            <>
+              <View style={styles.nameRow}>
+                <Text style={styles.userName}>{displayName}</Text>
+                {isAuthenticated && <CheckCircleIcon size={16} color="#2563eb" />}
+              </View>
+              <Text style={styles.userEmail}>{displayEmail}</Text>
+              {!!user?.phone && (
+                <Text style={styles.userPhone}>📞 {user.phone}</Text>
+              )}
+              {!!user?.companyName && (
+                <Text style={styles.userCompany}>🏢 {user.companyName}</Text>
+              )}
+            </>
           )}
 
           <View style={styles.badgeActionsRow}>
-            <View style={styles.tierBadge}>
-              <BoltIcon size={12} color="#f59e0b" />
-              <Text style={styles.tierText}>
-                {!isAuthenticated
-                  ? 'GUEST VISITOR'
-                  : user?.role === 'admin'
-                  ? 'SYSTEM ADMINISTRATOR'
-                  : 'TIER 1 CERTIFIED BUYER'}
-              </Text>
-            </View>
+            {isProfileLoading ? (
+              <View style={styles.tierBadgeLoading}>
+                <ActivityIndicator size="small" color="#f59e0b" style={{ transform: [{ scale: 0.7 }] }} />
+                <Text style={styles.tierText}>CONNECTING...</Text>
+              </View>
+            ) : (
+              <View style={styles.tierBadge}>
+                <BoltIcon size={12} color="#f59e0b" />
+                <Text style={styles.tierText}>
+                  {!isAuthenticated
+                    ? 'GUEST VISITOR'
+                    : user?.role === 'admin'
+                    ? 'SYSTEM ADMINISTRATOR'
+                    : 'TIER 1 CERTIFIED BUYER'}
+                </Text>
+              </View>
+            )}
 
-            {isAuthenticated && (
+            {isAuthenticated && !isProfileLoading && (
               <TouchableOpacity
                 style={styles.editProfileBtn}
                 onPress={openEditProfile}
@@ -251,15 +305,27 @@ export default function ProfileScreen({
       {/* Quick Stats Grid */}
       <View style={styles.statsRow}>
         <View style={styles.statBox}>
-          <Text style={styles.statNumber}>{orderCount}</Text>
+          {isProfileLoading ? (
+            <ActivityIndicator size="small" color="#2563eb" style={{ marginVertical: 3 }} />
+          ) : (
+            <Text style={styles.statNumber}>{orderCount}</Text>
+          )}
           <Text style={styles.statLabel}>Orders Placed</Text>
         </View>
         <View style={styles.statBox}>
-          <Text style={styles.statNumber}>₹{totalSpent}</Text>
+          {isProfileLoading ? (
+            <ActivityIndicator size="small" color="#2563eb" style={{ marginVertical: 3 }} />
+          ) : (
+            <Text style={styles.statNumber}>₹{totalSpent}</Text>
+          )}
           <Text style={styles.statLabel}>Total Supplies</Text>
         </View>
         <View style={styles.statBox}>
-          <Text style={styles.statNumber}>{siteCount}</Text>
+          {isProfileLoading ? (
+            <ActivityIndicator size="small" color="#2563eb" style={{ marginVertical: 3 }} />
+          ) : (
+            <Text style={styles.statNumber}>{siteCount}</Text>
+          )}
           <Text style={styles.statLabel}>Active Sites</Text>
         </View>
       </View>
@@ -374,21 +440,39 @@ export default function ProfileScreen({
       {/* Auth Switcher */}
       <View style={styles.authCard}>
         <Text style={styles.authTitle}>
-          {isAuthenticated ? 'Session & Security' : 'Sign In to Your Account'}
+          {isProfileLoading
+            ? 'Account Session'
+            : isAuthenticated
+            ? 'Session & Security'
+            : 'Sign In to Your Account'}
         </Text>
         <Text style={styles.authSub}>
-          {isAuthenticated
+          {isProfileLoading
+            ? 'Verifying secure contractor credentials...'
+            : isAuthenticated
             ? `Logged in as ${displayEmail}`
             : 'Access your order history and wholesale contractor pricing.'}
         </Text>
 
-        {isAuthenticated ? (
+        {isProfileLoading ? (
+          <View style={styles.sessionLoadingBox}>
+            <ActivityIndicator size="small" color="#2563eb" />
+          </View>
+        ) : isAuthenticated ? (
           <TouchableOpacity
-            style={styles.logoutBtn}
+            style={[styles.logoutBtn, isLoggingOut && styles.logoutBtnDisabled]}
             activeOpacity={0.8}
             onPress={handleLogout}
+            disabled={isLoggingOut}
           >
-            <Text style={styles.logoutBtnText}>LOG OUT OF CONSOLE</Text>
+            {isLoggingOut ? (
+              <View style={styles.logoutLoadingRow}>
+                <ActivityIndicator size="small" color="#ef4444" />
+                <Text style={styles.logoutBtnText}>LOGGING OUT...</Text>
+              </View>
+            ) : (
+              <Text style={styles.logoutBtnText}>LOG OUT OF CONSOLE</Text>
+            )}
           </TouchableOpacity>
         ) : (
           <View style={styles.authButtons}>
@@ -879,6 +963,35 @@ const styles = StyleSheet.create({
   userInfo: {
     flex: 1,
   },
+  userLoadingContainer: {
+    justifyContent: 'center',
+    marginVertical: 2,
+  },
+  nameLoadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  nameLoadingText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+  emailLoadingText: {
+    fontSize: 11,
+    color: '#94a3b8',
+    marginTop: 2,
+  },
+  tierBadgeLoading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#fef3c7',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    alignSelf: 'flex-start',
+  },
   nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1027,6 +1140,11 @@ const styles = StyleSheet.create({
     marginTop: 4,
     marginBottom: 12,
   },
+  sessionLoadingBox: {
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   logoutBtn: {
     backgroundColor: '#fef2f2',
     borderWidth: 1,
@@ -1034,6 +1152,16 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 8,
     alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logoutBtnDisabled: {
+    opacity: 0.6,
+  },
+  logoutLoadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
   },
   logoutBtnText: {
     color: '#ef4444',

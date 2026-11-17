@@ -31,12 +31,39 @@ export function usePaginatedServices(params = {}) {
 }
 
 // Get single service details
-export function useServiceDetails(id) {
+export function useServiceDetails(id, options = {}) {
+  const queryClient = useQueryClient();
+  const { initialData: propInitialData, ...restOptions } = options;
+
   return useQuery({
     queryKey: ['service', id],
     queryFn: () => ServiceService.getServiceById(id),
     enabled: !!id,
     staleTime: 60000,
+    initialData: () => {
+      if (propInitialData) {
+        return propInitialData;
+      }
+      if (!id) return undefined;
+      const cachedList = queryClient.getQueryData(['services']);
+      if (Array.isArray(cachedList)) {
+        const found = cachedList.find((s) => (s._id || s.id) === id);
+        if (found) return found;
+      }
+      const queries = queryClient.getQueryCache().findAll({ queryKey: ['services'] });
+      for (const q of queries) {
+        const data = q.state?.data;
+        if (Array.isArray(data)) {
+          const found = data.find((s) => (s._id || s.id) === id);
+          if (found) return found;
+        } else if (data && Array.isArray(data.items)) {
+          const found = data.items.find((s) => (s._id || s.id) === id);
+          if (found) return found;
+        }
+      }
+      return undefined;
+    },
+    ...restOptions,
   });
 }
 

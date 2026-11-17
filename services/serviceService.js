@@ -44,8 +44,11 @@ export const ServiceService = {
    * @param {string} id
    */
   async getServiceById(id) {
+    if (!id) {
+      throw new Error('Service ID is required');
+    }
     try {
-      const response = await api.get(`/api/services/${id}`);
+      const response = await api.get(`/api/services/${id}`, { timeout: 8000 });
       return response.data?.data || response.data;
     } catch (error) {
       console.warn(`Error fetching service with id ${id}:`, error.message);

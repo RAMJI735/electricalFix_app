@@ -27,6 +27,8 @@ import {
 import { useCategories, useSettings } from '../hooks';
 import CategoryService from '../../services/categoryService';
 import { useCart } from '../context/CartContext';
+import { useAuth } from '../context/AuthContext';
+import AuthRequiredModal from '../components/AuthRequiredModal';
 import {
   SearchIcon,
   BoltIcon,
@@ -36,7 +38,7 @@ import {
 } from '../components/Icons';
 import { CategoryCircleSkeleton, ProductCardSkeleton } from '../components/Skeleton';
 
-const PAGE_SIZE = 6;
+const PAGE_SIZE = 10;
 
 export default function HomeScreen({
   onSelectCategory: propOnSelectCategory,
@@ -49,6 +51,8 @@ export default function HomeScreen({
   const isFocused = useIsFocused();
   const queryClient = useQueryClient();
   const { isInCart, addToCart } = useCart();
+  const { isAuthenticated } = useAuth();
+  const [authModalVisible, setAuthModalVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [categories, setCategories] = useState(ELECTRICAL_CATEGORIES);
   const [refreshing, setRefreshing] = useState(false);
@@ -63,18 +67,16 @@ export default function HomeScreen({
     propOnSelectService ||
     ((service) =>
       navigation.navigate('ServiceDetail', {
-        serviceId: service.id || service._id,
+        serviceId: service._id || service.id,
+        initialService: service,
+        service,
       }));
   const onNavigateToCart =
     propOnNavigateToCart || (() => navigation.navigate('Cart'));
   const onAddToCart =
     propOnAddToCart ||
     (async (product) => {
-      try {
-        return await addToCart(product, 1);
-      } catch (e) {
-        console.warn('Add to cart fallback error:', e);
-      }
+      return await addToCart(product, 1);
     });
 
   // Dynamic Store & App Settings
@@ -97,6 +99,7 @@ export default function HomeScreen({
 
   // Persistent reference for double back press tracking
   const lastBackPressTime = useRef(0);
+  const isFetchingNextPage = useRef(false);
 
   // Double back press to exit app when on Home screen
   useFocusEffect(
@@ -130,13 +133,30 @@ export default function HomeScreen({
   const handleAddToCartClick = async (product) => {
     const pid = product._id || product.id;
     if (addingProductId) return;
+
+    if (!isAuthenticated) {
+      setAuthModalVisible(true);
+      return;
+    }
+
     setAddingProductId(pid);
     try {
       if (onAddToCart) {
-        await onAddToCart(product);
+        const res = await onAddToCart(product);
+        if (res === false) {
+          setAuthModalVisible(true);
+        }
       }
     } catch (err) {
       console.warn('Failed to add to cart:', err);
+      if (
+        err?.code === 'AUTH_REQUIRED' ||
+        err?.message?.toLowerCase().includes('log in') ||
+        err?.message?.toLowerCase().includes('auth') ||
+        err?.response?.status === 401
+      ) {
+        setAuthModalVisible(true);
+      }
     } finally {
       setAddingProductId(null);
     }
@@ -167,6 +187,8 @@ export default function HomeScreen({
       if (pageToLoad === 1) {
         if (!isRefresh) setLoadingProducts(true);
       } else {
+        if (isFetchingNextPage.current) return;
+        isFetchingNextPage.current = true;
         setLoadingMore(true);
       }
 
@@ -174,36 +196,43 @@ export default function HomeScreen({
         let backendItems = [];
         let hasNext = false;
 
+        const queryKey = [
+          'services',
+          'paginated',
+          {
+            categoryId: 'all',
+            page: pageToLoad,
+            limit: PAGE_SIZE,
+            search: searchQuery.trim(),
+          },
+        ];
+
         try {
-          const queryKey = [
-            'services',
-            'paginated',
-            {
-              categoryId: 'all',
-              page: pageToLoad,
-              limit: PAGE_SIZE,
-              search: searchQuery.trim(),
-            },
-          ];
+          // Instant retrieval if already prefetched in memory cache
+          const cachedData = isRefresh ? null : queryClient.getQueryData(queryKey);
+          let res = cachedData;
 
-          const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Request timed out')), 7000)
-          );
+          if (!res) {
+            const timeoutPromise = new Promise((_, reject) =>
+              setTimeout(() => reject(new Error('Request timed out')), 5000)
+            );
 
-          const res = await Promise.race([
-            queryClient.fetchQuery({
-              queryKey,
-              queryFn: () =>
-                CategoryService.getServicesPaginated({
-                  categoryId: 'all',
-                  page: pageToLoad,
-                  limit: PAGE_SIZE,
-                  search: searchQuery.trim(),
-                }),
-              staleTime: isRefresh ? 0 : 1000 * 60,
-            }),
-            timeoutPromise,
-          ]);
+            res = await Promise.race([
+              queryClient.fetchQuery({
+                queryKey,
+                queryFn: () =>
+                  CategoryService.getServicesPaginated({
+                    categoryId: 'all',
+                    page: pageToLoad,
+                    limit: PAGE_SIZE,
+                    search: searchQuery.trim(),
+                  }),
+                staleTime: isRefresh ? 0 : 1000 * 60 * 5,
+              }),
+              timeoutPromise,
+            ]);
+          }
+
           backendItems = res?.items || [];
           hasNext = Boolean(res?.hasNextPage);
         } catch (err) {
@@ -218,17 +247,21 @@ export default function HomeScreen({
 
         if (pageToLoad === 1) {
           if (formattedBackend.length > 0) {
-            const existingNames = new Set(
-              formattedBackend.map((i) => (i.name || '').toLowerCase())
-            );
-            const missingMock = MOCK_PRODUCTS.map(formatCatalogProduct).filter(
-              (m) => !existingNames.has((m.name || '').toLowerCase())
-            );
-            uniquePool = Array.from(
-              new Map(
-                [...formattedBackend, ...missingMock].map((item) => [item.id, item])
-              ).values()
-            );
+            if (formattedBackend.length < 6 && !hasNext) {
+              const existingNames = new Set(
+                formattedBackend.map((i) => (i.name || '').toLowerCase())
+              );
+              const missingMock = MOCK_PRODUCTS.map(formatCatalogProduct).filter(
+                (m) => !existingNames.has((m.name || '').toLowerCase())
+              );
+              uniquePool = Array.from(
+                new Map(
+                  [...formattedBackend, ...missingMock].map((item) => [item.id, item])
+                ).values()
+              );
+            } else {
+              uniquePool = formattedBackend;
+            }
           } else {
             uniquePool = MOCK_PRODUCTS.map(formatCatalogProduct);
           }
@@ -239,19 +272,49 @@ export default function HomeScreen({
             new Map(formattedBackend.map((item) => [item.id, item])).values()
           );
           setProducts((prev) => {
-            const merged = [...prev, ...uniquePool];
-            return Array.from(new Map(merged.map((i) => [i.id, i])).values());
+            const existingIds = new Set(prev.map((i) => String(i.id)));
+            const newItems = uniquePool.filter((item) => !existingIds.has(String(item.id)));
+            return [...prev, ...newItems];
           });
         }
 
         setPage(pageToLoad);
-        setHasMore(hasNext && formattedBackend.length > 0);
+        const moreAvailable = hasNext && formattedBackend.length > 0;
+        setHasMore(moreAvailable);
+
+        // Immediate background prefetching of the next page so scrolling has ZERO delay
+        if (moreAvailable) {
+          const nextPage = pageToLoad + 1;
+          const nextQueryKey = [
+            'services',
+            'paginated',
+            {
+              categoryId: 'all',
+              page: nextPage,
+              limit: PAGE_SIZE,
+              search: searchQuery.trim(),
+            },
+          ];
+
+          queryClient.prefetchQuery({
+            queryKey: nextQueryKey,
+            queryFn: () =>
+              CategoryService.getServicesPaginated({
+                categoryId: 'all',
+                page: nextPage,
+                limit: PAGE_SIZE,
+                search: searchQuery.trim(),
+              }),
+            staleTime: 1000 * 60 * 5,
+          });
+        }
       } catch (err) {
         console.error('Error loading products page in HomeScreen:', err);
         if (pageToLoad === 1) {
           setProducts(MOCK_PRODUCTS.map(formatCatalogProduct));
         }
       } finally {
+        isFetchingNextPage.current = false;
         setLoadingProducts(false);
         setLoadingMore(false);
       }
@@ -282,7 +345,7 @@ export default function HomeScreen({
   };
 
   const handleLoadMore = () => {
-    if (!loadingProducts && !loadingMore && hasMore) {
+    if (!loadingProducts && !loadingMore && hasMore && !isFetchingNextPage.current) {
       loadProductsPage(page + 1);
     }
   };
@@ -823,32 +886,39 @@ export default function HomeScreen({
   };
 
   return (
-    <FlatList
-      style={styles.container}
-      contentContainerStyle={styles.contentContainer}
-      showsVerticalScrollIndicator={false}
-      data={products}
-      keyExtractor={(item) => String(item.id)}
-      renderItem={renderProductItem}
-      ListHeaderComponent={renderHeader()}
-      ListFooterComponent={renderFooter()}
-      ListEmptyComponent={renderEmpty()}
-      onEndReached={handleLoadMore}
-      onEndReachedThreshold={0.4}
-      removeClippedSubviews={false}
-      maxToRenderPerBatch={6}
-      windowSize={5}
-      initialNumToRender={4}
-      updateCellsBatchingPeriod={50}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={onRefresh}
-          colors={[colors.primary || '#2563eb']}
-          tintColor={colors.primary || '#2563eb'}
-        />
-      }
-    />
+    <>
+      <FlatList
+        style={styles.container}
+        contentContainerStyle={styles.contentContainer}
+        showsVerticalScrollIndicator={false}
+        data={products}
+        keyExtractor={(item) => String(item.id)}
+        renderItem={renderProductItem}
+        ListHeaderComponent={renderHeader()}
+        ListFooterComponent={renderFooter()}
+        ListEmptyComponent={renderEmpty()}
+        onEndReached={handleLoadMore}
+        onEndReachedThreshold={0.8}
+        removeClippedSubviews={Platform.OS === 'android'}
+        maxToRenderPerBatch={10}
+        windowSize={9}
+        initialNumToRender={8}
+        updateCellsBatchingPeriod={25}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[colors.primary || '#2563eb']}
+            tintColor={colors.primary || '#2563eb'}
+          />
+        }
+      />
+      <AuthRequiredModal
+        visible={authModalVisible}
+        onClose={() => setAuthModalVisible(false)}
+        navigation={navigation}
+      />
+    </>
   );
 }
 

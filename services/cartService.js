@@ -3,9 +3,9 @@ import AuthService from './authService';
 
 const getStoredUserId = () => {
   try {
-    const session = AuthService.getStoredSession();
+    const session = AuthService.getStoredSessionSync ? AuthService.getStoredSessionSync() : null;
     return session?.user?._id || session?.user?.id || null;
-  } catch (e) {
+  } catch (_e) {
     return null;
   }
 };
@@ -19,6 +19,7 @@ export const CartService = {
       const uid = customUserId || getStoredUserId();
       const response = await api.get('/api/cart', {
         params: uid ? { userId: uid } : {},
+        timeout: 10000,
       });
       return response.data?.data || response.data || { items: [] };
     } catch (error) {
@@ -33,6 +34,9 @@ export const CartService = {
   async addToCart(item, quantity = 1, notes = '', customUserId = null) {
     try {
       const targetItemId = item._id || item.id || item.itemId || item.serviceId;
+      if (!targetItemId) {
+        throw new Error('Item ID is required to add to cart');
+      }
       const uid = customUserId || getStoredUserId();
 
       const payload = {
@@ -48,7 +52,7 @@ export const CartService = {
         ...(uid ? { userId: uid } : {}),
       };
 
-      const response = await api.post('/api/cart', payload);
+      const response = await api.post('/api/cart', payload, { timeout: 10000 });
       return response.data?.data || response.data;
     } catch (error) {
       console.error('Error adding to cart:', error.message);

@@ -70,12 +70,20 @@ export function CartProvider({ children }) {
     setUpdating(true);
     setError(null);
     try {
-      const updatedCart = await CartService.addToCart(
-        product,
-        quantity,
-        notes,
-        user?._id || user?.id
-      );
+      const updatedCart = await Promise.race([
+        CartService.addToCart(
+          product,
+          quantity,
+          notes,
+          user?._id || user?.id
+        ),
+        new Promise((_, reject) =>
+          setTimeout(
+            () => reject(new Error('Add to cart timed out. Please check your connection.')),
+            8000
+          )
+        ),
+      ]);
       if (updatedCart) {
         setCart(updatedCart);
       } else {
@@ -85,8 +93,6 @@ export function CartProvider({ children }) {
     } catch (err) {
       console.error('Add to cart failed:', err.message);
       setError(err.message);
-      // Fallback: reload cart
-      await fetchCart();
       throw err;
     } finally {
       setUpdating(false);

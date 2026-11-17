@@ -28,24 +28,41 @@ export default function LoginScreen({
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [localError, setLocalError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({});
   const [loading, setLoading] = useState(false);
 
   const { login } = useAuth();
 
   const handleLogin = async () => {
     setLocalError('');
-    if (!email.trim()) {
-      setLocalError('Please enter your email address');
-      return;
+    const errors = {};
+
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) {
+      errors.email = 'Please enter your email address';
+    } else {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(trimmedEmail)) {
+        errors.email = 'Please enter a valid email address (e.g. name@example.com)';
+      }
     }
+
     if (!password) {
-      setLocalError('Please enter your password');
+      errors.password = 'Please enter your password';
+    } else if (password.length < 6) {
+      errors.password = 'Password must be at least 6 characters';
+    }
+
+    setFieldErrors(errors);
+
+    if (Object.keys(errors).length > 0) {
+      setLocalError(Object.values(errors)[0]);
       return;
     }
 
     setLoading(true);
     try {
-      await login({ email: email.trim().toLowerCase(), password });
+      await login({ email: trimmedEmail.toLowerCase(), password });
       if (onSkipToHome) {
         onSkipToHome();
       }
@@ -106,8 +123,13 @@ export default function LoginScreen({
           {/* Main Card */}
           <View style={styles.card}>
             <View style={styles.fieldGroup}>
-              <Text style={styles.label}>Email</Text>
-              <View style={styles.inputContainer}>
+              <Text style={styles.label}>Email Address *</Text>
+              <View
+                style={[
+                  styles.inputContainer,
+                  fieldErrors.email && styles.inputContainerError,
+                ]}
+              >
                 <TextInput
                   style={styles.input}
                   placeholder="name@example.com"
@@ -115,29 +137,46 @@ export default function LoginScreen({
                   value={email}
                   onChangeText={(text) => {
                     setEmail(text);
+                    if (fieldErrors.email) {
+                      setFieldErrors((prev) => ({ ...prev, email: '' }));
+                    }
                     if (localError) setLocalError('');
                   }}
                   autoCapitalize="none"
                   keyboardType="email-address"
                 />
               </View>
+              {!!fieldErrors.email && (
+                <Text style={styles.fieldErrorText}>{fieldErrors.email}</Text>
+              )}
             </View>
 
             <View style={styles.fieldGroup}>
-              <Text style={styles.label}>Password</Text>
-              <View style={styles.inputContainer}>
+              <Text style={styles.label}>Password *</Text>
+              <View
+                style={[
+                  styles.inputContainer,
+                  fieldErrors.password && styles.inputContainerError,
+                ]}
+              >
                 <TextInput
                   style={styles.input}
-                  placeholder="Enter your password"
+                  placeholder="Enter your password (min 6 chars)"
                   placeholderTextColor="#94a3b8"
                   value={password}
                   onChangeText={(text) => {
                     setPassword(text);
+                    if (fieldErrors.password) {
+                      setFieldErrors((prev) => ({ ...prev, password: '' }));
+                    }
                     if (localError) setLocalError('');
                   }}
                   secureTextEntry
                 />
               </View>
+              {!!fieldErrors.password && (
+                <Text style={styles.fieldErrorText}>{fieldErrors.password}</Text>
+              )}
             </View>
 
             <TouchableOpacity
@@ -263,6 +302,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     height: 48,
     justifyContent: 'center',
+  },
+  inputContainerError: {
+    borderColor: '#ef4444',
+    backgroundColor: '#fef2f2',
+  },
+  fieldErrorText: {
+    fontSize: 12,
+    color: '#ef4444',
+    marginTop: 4,
+    fontWeight: '500',
   },
   input: {
     fontSize: 14,

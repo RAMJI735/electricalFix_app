@@ -1,14 +1,59 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { Platform } from 'react-native';
 import AuthService from '../services/authService';
 import { queryClient } from '../src/lib/queryClient';
+import { registerSessionExpiredHandler, registerTokenRefreshedHandler } from '../utils/api';
 
 const AuthContext = createContext();
 
+const getInitialSession = () => {
+  if (Platform.OS === 'web' && typeof window !== 'undefined') {
+    try {
+      const storedUser =
+        window.localStorage?.getItem('voltline_auth_user') ||
+        window.sessionStorage?.getItem('voltline_auth_user');
+      const storedToken =
+        window.localStorage?.getItem('voltline_auth_token') ||
+        window.sessionStorage?.getItem('voltline_auth_token');
+      if (storedUser && storedToken) {
+        return {
+          user: JSON.parse(storedUser),
+          token: storedToken,
+          isLoading: false,
+        };
+      }
+    } catch (_e) {}
+  }
+  return { user: null, token: null, isLoading: true };
+};
+
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null);
-  const [token, setToken] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const initial = getInitialSession();
+  const [user, setUser] = useState(initial.user);
+  const [token, setToken] = useState(initial.token);
+  const [isLoading, setIsLoading] = useState(initial.isLoading);
+  const [isRefreshingProfile, setIsRefreshingProfile] = useState(false);
   const [authError, setAuthError] = useState(null);
+
+  // Synchronize with API token refresh & session expiration events
+  useEffect(() => {
+    registerSessionExpiredHandler(() => {
+      setUser(null);
+      setToken(null);
+      try {
+        queryClient.clear();
+      } catch (_e) {}
+    });
+
+    registerTokenRefreshedHandler((newToken) => {
+      setToken(newToken);
+    });
+
+    return () => {
+      registerSessionExpiredHandler(null);
+      registerTokenRefreshedHandler(null);
+    };
+  }, []);
 
   // Restore session on mount
   useEffect(() => {
@@ -16,12 +61,21 @@ export function AuthProvider({ children }) {
     const initAuth = async () => {
       try {
         const session = await AuthService.restoreSessionAsync();
-        if (isMounted && session.user) {
-          setUser(session.user);
-          setToken(session.token);
+        if (isMounted) {
+          if (session.user && session.token) {
+            setUser(session.user);
+            setToken(session.token);
+          } else {
+            setUser(null);
+            setToken(null);
+          }
         }
       } catch (err) {
         console.warn('Session restoration failed:', err);
+        if (isMounted) {
+          setUser(null);
+          setToken(null);
+        }
       } finally {
         if (isMounted) setIsLoading(false);
       }
@@ -89,6 +143,8 @@ export function AuthProvider({ children }) {
     setAuthError(null);
     try {
       await AuthService.logout();
+    } catch (err) {
+      console.warn('AuthContext logout notice:', err);
     } finally {
       // Clear all cached React Query state so old data is immediately wiped
       try {
@@ -122,6 +178,7 @@ export function AuthProvider({ children }) {
    * Refresh profile
    */
   const refreshProfile = async () => {
+    setIsRefreshingProfile(true);
     try {
       const latestUser = await AuthService.getProfile();
       if (latestUser) {
@@ -130,6 +187,8 @@ export function AuthProvider({ children }) {
       return latestUser;
     } catch (err) {
       console.warn('Profile refresh failed:', err);
+    } finally {
+      setIsRefreshingProfile(false);
     }
   };
 
@@ -190,8 +249,9 @@ export function AuthProvider({ children }) {
   const value = {
     user,
     token,
-    isAuthenticated: !!user,
+    isAuthenticated: Boolean(user && (user._id || user.id || user.email) && token),
     isLoading,
+    isRefreshingProfile,
     authError,
     login,
     signup,

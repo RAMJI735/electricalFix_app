@@ -12,7 +12,6 @@ import {
   Platform,
   RefreshControl,
   KeyboardAvoidingView,
-  Keyboard,
   BackHandler,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
@@ -25,8 +24,6 @@ import {
   useSettings,
   useCoupons,
 } from '../hooks';
-import OrderService from '../../services/orderService';
-import AddressService from '../../services/addressService';
 import { getCurrentUserLocation } from '../utils/locationHelper';
 import {
   ArrowLeftIcon,
@@ -120,6 +117,7 @@ export default function CartScreen({
   const [checkoutLocating, setCheckoutLocating] = useState(false);
   const [checkoutLocationMsg, setCheckoutLocationMsg] = useState('');
   const [formError, setFormError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({});
 
   // TanStack Query hooks
   const { data: addressList = [], refetch: refetchAddresses } = useAddresses({
@@ -304,30 +302,38 @@ export default function CartScreen({
 
   // Handle Place Order with full field validations
   const handlePlaceOrder = async () => {
+    const errors = {};
+
     if (!fullName || fullName.trim().length < 2) {
-      setFormError('Please enter recipient or contractor name (min 2 characters)');
-      return;
+      errors.fullName = 'Recipient or contractor name must be at least 2 characters';
     }
 
     const cleanPhone = phone ? phone.replace(/\D/g, '') : '';
-    if (!cleanPhone || cleanPhone.length !== 10 || !/^[6-9]\d{9}$/.test(cleanPhone)) {
-      setFormError('Please enter a valid 10-digit Indian mobile number (e.g. 9876543210)');
-      return;
+    if (!cleanPhone) {
+      errors.phone = 'Mobile phone number is required';
+    } else if (cleanPhone.length !== 10 || !/^[6-9]\d{9}$/.test(cleanPhone)) {
+      errors.phone = 'Valid 10-digit Indian mobile number required (e.g. 9876543210)';
     }
 
     if (!street || street.trim().length < 5) {
-      setFormError('Please enter complete street or plot address (at least 5 characters)');
-      return;
+      errors.street = 'Street or Plot address must be at least 5 characters';
     }
 
     if (!city || city.trim().length < 2) {
-      setFormError('Please enter city name');
-      return;
+      errors.city = 'City name is required';
     }
 
     const cleanPin = pincode ? pincode.replace(/\D/g, '') : '';
-    if (!cleanPin || cleanPin.length !== 6 || !/^[1-9][0-9]{5}$/.test(cleanPin)) {
-      setFormError('Please enter a valid 6-digit Indian PIN code (cannot start with 0)');
+    if (!cleanPin) {
+      errors.pincode = 'PIN code is required';
+    } else if (cleanPin.length !== 6 || !/^[1-9][0-9]{5}$/.test(cleanPin)) {
+      errors.pincode = 'Enter a valid 6-digit Indian PIN code (cannot start with 0)';
+    }
+
+    setFieldErrors(errors);
+
+    if (Object.keys(errors).length > 0) {
+      setFormError(Object.values(errors)[0]);
       return;
     }
 
@@ -1013,59 +1019,122 @@ export default function CartScreen({
                   <View style={styles.inputGroup}>
                     <Text style={styles.inputLabel}>Recipient / Contractor Name *</Text>
                     <TextInput
-                      style={styles.inputField}
+                      style={[
+                        styles.inputField,
+                        fieldErrors.fullName && styles.inputFieldError,
+                      ]}
                       placeholder="e.g. Ramesh Kumar"
                       placeholderTextColor="#94a3b8"
                       value={fullName}
-                      onChangeText={setFullName}
+                      onChangeText={(val) => {
+                        setFullName(val);
+                        if (fieldErrors.fullName) {
+                          setFieldErrors((prev) => ({ ...prev, fullName: '' }));
+                        }
+                        if (formError) setFormError('');
+                      }}
                     />
+                    {!!fieldErrors.fullName && (
+                      <Text style={styles.fieldErrorText}>{fieldErrors.fullName}</Text>
+                    )}
                   </View>
 
                   <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>Mobile Phone (for delivery OTP) *</Text>
+                    <Text style={styles.inputLabel}>Mobile Phone (10 digits) *</Text>
                     <TextInput
-                      style={styles.inputField}
+                      style={[
+                        styles.inputField,
+                        fieldErrors.phone && styles.inputFieldError,
+                      ]}
                       placeholder="e.g. 9876543210"
                       placeholderTextColor="#94a3b8"
                       keyboardType="phone-pad"
+                      maxLength={10}
                       value={phone}
-                      onChangeText={setPhone}
+                      onChangeText={(val) => {
+                        setPhone(val);
+                        if (fieldErrors.phone) {
+                          setFieldErrors((prev) => ({ ...prev, phone: '' }));
+                        }
+                        if (formError) setFormError('');
+                      }}
                     />
+                    {!!fieldErrors.phone && (
+                      <Text style={styles.fieldErrorText}>{fieldErrors.phone}</Text>
+                    )}
                   </View>
 
                   <View style={styles.inputGroup}>
                     <Text style={styles.inputLabel}>Street / Building / Plot Address *</Text>
                     <TextInput
-                      style={[styles.inputField, { height: 60 }]}
+                      style={[
+                        styles.inputField,
+                        { height: 60 },
+                        fieldErrors.street && styles.inputFieldError,
+                      ]}
                       placeholder="e.g. Plot 42, Sector 5, Near Tech Park"
                       placeholderTextColor="#94a3b8"
                       multiline
                       value={street}
-                      onChangeText={setStreet}
+                      onChangeText={(val) => {
+                        setStreet(val);
+                        if (fieldErrors.street) {
+                          setFieldErrors((prev) => ({ ...prev, street: '' }));
+                        }
+                        if (formError) setFormError('');
+                      }}
                     />
+                    {!!fieldErrors.street && (
+                      <Text style={styles.fieldErrorText}>{fieldErrors.street}</Text>
+                    )}
                   </View>
 
                   <View style={styles.rowInputs}>
                     <View style={[styles.inputGroup, { flex: 1 }]}>
                       <Text style={styles.inputLabel}>City *</Text>
                       <TextInput
-                        style={styles.inputField}
+                        style={[
+                          styles.inputField,
+                          fieldErrors.city && styles.inputFieldError,
+                        ]}
                         placeholder="City"
                         placeholderTextColor="#94a3b8"
                         value={city}
-                        onChangeText={setCity}
+                        onChangeText={(val) => {
+                          setCity(val);
+                          if (fieldErrors.city) {
+                            setFieldErrors((prev) => ({ ...prev, city: '' }));
+                          }
+                          if (formError) setFormError('');
+                        }}
                       />
+                      {!!fieldErrors.city && (
+                        <Text style={styles.fieldErrorText}>{fieldErrors.city}</Text>
+                      )}
                     </View>
                     <View style={[styles.inputGroup, { flex: 1 }]}>
-                      <Text style={styles.inputLabel}>PIN Code *</Text>
+                      <Text style={styles.inputLabel}>PIN Code (6 digits) *</Text>
                       <TextInput
-                        style={styles.inputField}
+                        style={[
+                          styles.inputField,
+                          fieldErrors.pincode && styles.inputFieldError,
+                        ]}
                         placeholder="700091"
                         placeholderTextColor="#94a3b8"
                         keyboardType="numeric"
+                        maxLength={6}
                         value={pincode}
-                        onChangeText={setPincode}
+                        onChangeText={(val) => {
+                          setPincode(val);
+                          if (fieldErrors.pincode) {
+                            setFieldErrors((prev) => ({ ...prev, pincode: '' }));
+                          }
+                          if (formError) setFormError('');
+                        }}
                       />
+                      {!!fieldErrors.pincode && (
+                        <Text style={styles.fieldErrorText}>{fieldErrors.pincode}</Text>
+                      )}
                     </View>
                   </View>
 
@@ -1126,7 +1195,7 @@ export default function CartScreen({
                 </View>
               </TouchableOpacity>
 
-              <TouchableOpacity disabled
+              {/* <TouchableOpacity disabled
                 style={[
                   styles.paymentOption,
                   paymentMethod === 'UPI' && styles.paymentOptionActive,
@@ -1178,7 +1247,7 @@ export default function CartScreen({
                 >
                   {paymentMethod === 'CARD' && <View style={styles.radioDot} />}
                 </View>
-              </TouchableOpacity>
+              </TouchableOpacity> */}
 
               {/* Order Final Summary */}
               <View style={styles.modalSummaryBox}>
@@ -1972,6 +2041,16 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     fontSize: 12,
     color: '#0f172a',
+  },
+  inputFieldError: {
+    borderColor: '#ef4444',
+    backgroundColor: '#fef2f2',
+  },
+  fieldErrorText: {
+    fontSize: 11,
+    color: '#ef4444',
+    marginTop: 3,
+    fontWeight: '500',
   },
   rowInputs: {
     flexDirection: 'row',

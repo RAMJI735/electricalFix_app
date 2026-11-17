@@ -30,6 +30,7 @@ export default function SignUpScreen({
   const [phone, setPhone] = useState('');
   const [avatar, setAvatar] = useState('⚡');
   const [localError, setLocalError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({});
   const [loading, setLoading] = useState(false);
 
   // Email verification state
@@ -111,37 +112,66 @@ export default function SignUpScreen({
 
   const handleSignUp = async () => {
     setLocalError('');
-    if (!fullName.trim() || fullName.trim().length < 2) {
-      setLocalError('Please enter your full name');
-      return;
+    const errors = {};
+
+    const trimmedName = fullName.trim();
+    if (!trimmedName || trimmedName.length < 2) {
+      errors.fullName = 'Full name must be at least 2 characters';
     }
 
+    const trimmedEmail = email.trim();
     const pattern = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,4}$/;
-    if (!pattern.test(email.trim())) {
-      setLocalError('Please enter a valid email address');
-      return;
+    if (!trimmedEmail) {
+      errors.email = 'Please enter your email address';
+    } else if (!pattern.test(trimmedEmail)) {
+      errors.email = 'Please enter a valid email address';
     }
 
     if (!isEmailVerified) {
-      setLocalError('Please verify your email address to continue.');
-      if (!otpSent) {
+      errors.email = 'Please verify your email address to continue';
+      if (!otpSent && pattern.test(trimmedEmail)) {
         handleSendOtp();
       }
-      return;
     }
 
-    if (!password || password.length < 6) {
-      setLocalError('Password must be at least 6 characters');
+    if (!password) {
+      errors.password = 'Please enter a password';
+    } else if (password.length < 6) {
+      errors.password = 'Password must be at least 6 characters';
+    }
+
+    const cleanPhone = phone ? phone.replace(/\D/g, '') : '';
+    if (phone.trim() && (cleanPhone.length !== 10 || !/^[6-9]\d{9}$/.test(cleanPhone))) {
+      errors.phone = 'Please enter a valid 10-digit Indian mobile number';
+    }
+
+    if (isAddressExpanded) {
+      if (street.trim() && street.trim().length < 5) {
+        errors.street = 'Street address must be at least 5 characters';
+      }
+      if (city.trim() && city.trim().length < 2) {
+        errors.city = 'City must be at least 2 characters';
+      }
+      const cleanPin = postalCode ? postalCode.replace(/\D/g, '') : '';
+      if (postalCode.trim() && (cleanPin.length !== 6 || !/^[1-9][0-9]{5}$/.test(cleanPin))) {
+        errors.postalCode = 'Enter a valid 6-digit PIN code';
+      }
+    }
+
+    setFieldErrors(errors);
+
+    if (Object.keys(errors).length > 0) {
+      setLocalError(Object.values(errors)[0]);
       return;
     }
 
     setLoading(true);
     try {
       const result = await signup({
-        name: fullName.trim(),
-        email: email.trim().toLowerCase(),
+        name: trimmedName,
+        email: trimmedEmail.toLowerCase(),
         password,
-        phone: phone.trim(),
+        phone: cleanPhone,
       });
 
       // If user filled in a service address, create it
@@ -149,8 +179,8 @@ export default function SignUpScreen({
         try {
           const userId = result?.user?._id || result?.user?.id;
           await AddressService.createAddress({
-            fullName: fullName.trim(),
-            phone: phone.trim() || '9876543210',
+            fullName: trimmedName,
+            phone: cleanPhone || '9876543210',
             street: street.trim(),
             city: city.trim(),
             state: stateVal.trim() || 'West Bengal',
@@ -233,8 +263,13 @@ export default function SignUpScreen({
           <View style={styles.formCard}>
             {/* Full Name */}
             <View style={styles.fieldGroup}>
-              <Text style={styles.label}>Full Name</Text>
-              <View style={styles.inputContainer}>
+              <Text style={styles.label}>Full Name *</Text>
+              <View
+                style={[
+                  styles.inputContainer,
+                  fieldErrors.fullName && styles.inputContainerError,
+                ]}
+              >
                 <TextInput
                   style={styles.input}
                   placeholder="e.g. Rahul Sharma"
@@ -242,16 +277,22 @@ export default function SignUpScreen({
                   value={fullName}
                   onChangeText={(text) => {
                     setFullName(text);
+                    if (fieldErrors.fullName) {
+                      setFieldErrors((prev) => ({ ...prev, fullName: '' }));
+                    }
                     if (localError) setLocalError('');
                   }}
                 />
               </View>
+              {!!fieldErrors.fullName && (
+                <Text style={styles.fieldErrorText}>{fieldErrors.fullName}</Text>
+              )}
             </View>
 
             {/* Email Address */}
             <View style={styles.fieldGroup}>
               <View style={styles.labelRow}>
-                <Text style={styles.label}>Email Address</Text>
+                <Text style={styles.label}>Email Address *</Text>
                 {isEmailVerified ? (
                   <View style={styles.verifiedBadge}>
                     <Text style={styles.verifiedBadgeText}>✓ Verified</Text>
@@ -260,7 +301,13 @@ export default function SignUpScreen({
                   <Text style={styles.unverifiedBadgeText}>Verification required</Text>
                 )}
               </View>
-              <View style={[styles.inputContainer, styles.inputRowContainer]}>
+              <View
+                style={[
+                  styles.inputContainer,
+                  styles.inputRowContainer,
+                  fieldErrors.email && styles.inputContainerError,
+                ]}
+              >
                 <TextInput
                   style={[styles.input, { flex: 1 }]}
                   placeholder="name@example.com"
@@ -271,6 +318,9 @@ export default function SignUpScreen({
                     if (isEmailVerified) setIsEmailVerified(false);
                     if (otpSent) setOtpSent(false);
                     if (otp) setOtp('');
+                    if (fieldErrors.email) {
+                      setFieldErrors((prev) => ({ ...prev, email: '' }));
+                    }
                     if (localError) setLocalError('');
                     if (otpSuccessMessage) setOtpSuccessMessage('');
                   }}
@@ -315,6 +365,9 @@ export default function SignUpScreen({
                   </TouchableOpacity>
                 )}
               </View>
+              {!!fieldErrors.email && (
+                <Text style={styles.fieldErrorText}>{fieldErrors.email}</Text>
+              )}
             </View>
 
             {/* OTP Input Section */}
@@ -375,8 +428,13 @@ export default function SignUpScreen({
 
             {/* Password */}
             <View style={styles.fieldGroup}>
-              <Text style={styles.label}>Password</Text>
-              <View style={styles.inputContainer}>
+              <Text style={styles.label}>Password *</Text>
+              <View
+                style={[
+                  styles.inputContainer,
+                  fieldErrors.password && styles.inputContainerError,
+                ]}
+              >
                 <TextInput
                   style={styles.input}
                   placeholder="At least 6 characters"
@@ -384,26 +442,47 @@ export default function SignUpScreen({
                   value={password}
                   onChangeText={(text) => {
                     setPassword(text);
+                    if (fieldErrors.password) {
+                      setFieldErrors((prev) => ({ ...prev, password: '' }));
+                    }
                     if (localError) setLocalError('');
                   }}
                   secureTextEntry
                 />
               </View>
+              {!!fieldErrors.password && (
+                <Text style={styles.fieldErrorText}>{fieldErrors.password}</Text>
+              )}
             </View>
 
             {/* Phone */}
             <View style={styles.fieldGroup}>
-              <Text style={styles.label}>Phone Number (Optional)</Text>
-              <View style={styles.inputContainer}>
+              <Text style={styles.label}>Phone Number (Optional - 10 digits)</Text>
+              <View
+                style={[
+                  styles.inputContainer,
+                  fieldErrors.phone && styles.inputContainerError,
+                ]}
+              >
                 <TextInput
                   style={styles.input}
-                  placeholder="+91 98765 43210"
+                  placeholder="e.g. 9876543210"
                   placeholderTextColor="#94a3b8"
                   value={phone}
-                  onChangeText={setPhone}
+                  onChangeText={(text) => {
+                    setPhone(text);
+                    if (fieldErrors.phone) {
+                      setFieldErrors((prev) => ({ ...prev, phone: '' }));
+                    }
+                    if (localError) setLocalError('');
+                  }}
                   keyboardType="phone-pad"
+                  maxLength={10}
                 />
               </View>
+              {!!fieldErrors.phone && (
+                <Text style={styles.fieldErrorText}>{fieldErrors.phone}</Text>
+              )}
             </View>
 
             {/* Profile Avatar Selection */}
@@ -452,30 +531,56 @@ export default function SignUpScreen({
                 {/* Street */}
                 <View style={styles.fieldGroup}>
                   <Text style={styles.label}>Street Address</Text>
-                  <View style={styles.inputContainer}>
+                  <View
+                    style={[
+                      styles.inputContainer,
+                      fieldErrors.street && styles.inputContainerError,
+                    ]}
+                  >
                     <TextInput
                       style={styles.input}
-                      placeholder="Flat, House no., Building, Apartment"
+                      placeholder="Flat, House no., Building, Plot"
                       placeholderTextColor="#94a3b8"
                       value={street}
-                      onChangeText={setStreet}
+                      onChangeText={(val) => {
+                        setStreet(val);
+                        if (fieldErrors.street) {
+                          setFieldErrors((prev) => ({ ...prev, street: '' }));
+                        }
+                      }}
                     />
                   </View>
+                  {!!fieldErrors.street && (
+                    <Text style={styles.fieldErrorText}>{fieldErrors.street}</Text>
+                  )}
                 </View>
 
                 {/* City & State (Row) */}
                 <View style={styles.twoColumnRow}>
                   <View style={[styles.fieldGroup, styles.flexHalf]}>
                     <Text style={styles.label}>City</Text>
-                    <View style={styles.inputContainer}>
+                    <View
+                      style={[
+                        styles.inputContainer,
+                        fieldErrors.city && styles.inputContainerError,
+                      ]}
+                    >
                       <TextInput
                         style={styles.input}
                         placeholder="City"
                         placeholderTextColor="#94a3b8"
                         value={city}
-                        onChangeText={setCity}
+                        onChangeText={(val) => {
+                          setCity(val);
+                          if (fieldErrors.city) {
+                            setFieldErrors((prev) => ({ ...prev, city: '' }));
+                          }
+                        }}
                       />
                     </View>
+                    {!!fieldErrors.city && (
+                      <Text style={styles.fieldErrorText}>{fieldErrors.city}</Text>
+                    )}
                   </View>
 
                   <View style={[styles.fieldGroup, styles.flexHalf]}>
@@ -496,16 +601,30 @@ export default function SignUpScreen({
                 <View style={styles.twoColumnRow}>
                   <View style={[styles.fieldGroup, styles.flexHalf]}>
                     <Text style={styles.label}>PIN Code</Text>
-                    <View style={styles.inputContainer}>
+                    <View
+                      style={[
+                        styles.inputContainer,
+                        fieldErrors.postalCode && styles.inputContainerError,
+                      ]}
+                    >
                       <TextInput
                         style={styles.input}
-                        placeholder="e.g. 700091"
+                        placeholder="6-digit PIN"
                         placeholderTextColor="#94a3b8"
+                        keyboardType="numeric"
+                        maxLength={6}
                         value={postalCode}
-                        onChangeText={setPostalCode}
-                        keyboardType="number-pad"
+                        onChangeText={(val) => {
+                          setPostalCode(val);
+                          if (fieldErrors.postalCode) {
+                            setFieldErrors((prev) => ({ ...prev, postalCode: '' }));
+                          }
+                        }}
                       />
                     </View>
+                    {!!fieldErrors.postalCode && (
+                      <Text style={styles.fieldErrorText}>{fieldErrors.postalCode}</Text>
+                    )}
                   </View>
 
                   <View style={[styles.fieldGroup, styles.flexHalf]}>
@@ -683,6 +802,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     height: 48,
     justifyContent: 'center',
+  },
+  inputContainerError: {
+    borderColor: '#ef4444',
+    backgroundColor: '#fef2f2',
+  },
+  fieldErrorText: {
+    fontSize: 12,
+    color: '#ef4444',
+    marginTop: 4,
+    fontWeight: '500',
   },
   input: {
     fontSize: 14,
